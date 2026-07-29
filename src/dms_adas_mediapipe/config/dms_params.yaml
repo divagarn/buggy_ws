@@ -1,0 +1,59 @@
+dms_node:
+  ros__parameters:
+    # Camera parameters
+    camera_topic: "/camera/image_raw"
+    camera_id: 0
+
+    # MediaPipe Face Detection - Optimized for Jetson Orin
+    static_image_mode: false
+    max_num_faces: 1
+    min_detection_confidence: 0.5
+    min_tracking_confidence: 0.5
+    refine_landmarks: false
+
+    # Drowsiness Detection
+    ear_threshold: 0.23
+    eye_closed_frames: 20
+
+    # Yawn Detection
+    mar_threshold: 0.35
+    yawn_frames: 10
+
+    # PERCLOS
+    perclos_window_frames: 60
+    perclos_threshold: 0.2
+
+    # Phone Detection
+    phone_confidence: 0.30
+
+    # Head Pose thresholds
+    head_yaw_threshold: 45.0
+    head_pitch_threshold: 35.0
+    head_roll_threshold: 25.0
+
+    # Camera mounting angle compensation
+    camera_yaw_offset: 45.0
+
+    # Gaze Direction
+    gaze_threshold: 0.3
+
+    # Alert parameters
+    enable_audio_alert: true
+    alert_sound_path: "sounds/alert.mp3"
+    alert_cooldown: 3.0
+
+    # Display parameters
+    show_visualization: true
+    display_fps: true
+    draw_landmarks: false
+    window_name: "Driver Monitoring System - Demo"
+
+gstreamer_camera_node:
+  ros__parameters:
+    device_id: 0
+    camera_topic: "/camera/image_raw"
+    desired_fps: 30
+    output_width: 640
+    output_height: 360
+    allow_fallback_devices: true
+    use_nv16_first: false

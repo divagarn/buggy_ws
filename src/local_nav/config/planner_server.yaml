@@ -1,0 +1,15 @@
+planner_server:
+  ros__parameters:
+    use_sim_time: true
+    expected_planner_frequency: 1.0
+    planner_plugins: ["GridBased"]
+    GridBased:
+      plugin: "nav2_navfn_planner/NavfnPlanner"
+      tolerance: 0.5
+      use_astar: false
+      # Rolling window costmap has no static map behind it - most of the
+      # 20x20m window outside current LiDAR range is unknown (-1), and the
+      # ~5m-ahead goal point is often past what's been observed yet. Without
+      # this, NavFn refuses to plan into/through unknown cells and every
+      # request fails outright.
+      allow_unknown: true

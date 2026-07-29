@@ -1,0 +1,58 @@
+local_costmap:
+  local_costmap:
+    ros__parameters:
+      use_sim_time: true
+      update_frequency: 10.0
+      publish_frequency: 10.0
+      global_frame: odom
+      robot_base_frame: base_link
+      rolling_window: true
+      width: 20
+      height: 20
+      resolution: 0.1
+      # Actual chassis footprint (buggy_description: 2.8194m x 1.3462m),
+      # not a crude circular approximation - matters for inflation accuracy
+      # given this vehicle is long and narrow, not round.
+      footprint: "[[1.4097, 0.6731], [1.4097, -0.6731], [-1.4097, -0.6731], [-1.4097, 0.6731]]"
+      plugins: ["obstacle_layer", "inflation_layer"]
+
+      obstacle_layer:
+        plugin: "nav2_costmap_2d::ObstacleLayer"
+        enabled: true
+        # /non_ground_points_filtered (not /detected_obstacles, and not raw
+        # /non_ground_points): the costmap should reflect everything that
+        # isn't ground, not just clusters that passed obstacle_detector's
+        # size/classification filters - a flat wall spanning the whole view
+        # is exactly the case that matters most here. The "_filtered" topic
+        # is /non_ground_points with vehicle self-hit points (chassis/hood
+        # LiDAR returns, a Gazebo-only artifact) removed by self_hit_filter -
+        # without it, the self-hit blob overlaps the robot's own footprint
+        # and every MPPI rollout starts already "in collision".
+        observation_sources: "non_ground_points"
+        non_ground_points:
+          topic: /non_ground_points_filtered
+          data_type: "PointCloud2"
+          sensor_frame: ""
+          marking: true
+          clearing: true
+          min_obstacle_height: -1.0
+          max_obstacle_height: 2.5
+          obstacle_max_range: 15.0
+          obstacle_min_range: 0.0
+          raytrace_max_range: 15.0
+          raytrace_min_range: 0.0
+
+      inflation_layer:
+        plugin: "nav2_costmap_2d::InflationLayer"
+        enabled: true
+        # Measured corridor width on this track is ~3.2m. inflation_radius
+        # needs to be roughly half that (or more) so both walls' cost
+        # gradients overlap in the middle - otherwise there's a flat,
+        # zero-cost dead zone across the whole corridor center with no
+        # gradient at all, and NavFn's shortest path has no reason to
+        # prefer the centerline over hugging one wall (confirmed: measured
+        # 2.3m clearance on one side vs 0.9m on the other at inflation_radius
+        # 0.75). 1.6m makes the two gradients meet in the middle, biasing
+        # the least-cost path toward the centerline.
+        cost_scaling_factor: 3.0
+        inflation_radius: 1.6

@@ -1,0 +1,68 @@
+controller_server:
+  ros__parameters:
+    use_sim_time: true
+    controller_frequency: 10.0
+    min_x_velocity_threshold: 0.001
+    min_y_velocity_threshold: 0.5
+    min_theta_velocity_threshold: 0.001
+    failure_tolerance: 0.3
+    controller_plugins: ["FollowPath"]
+
+    FollowPath:
+      plugin: "dwb_core::DWBLocalPlanner"
+      debug_trajectory_details: false
+
+      # Same envelope as the MPPI config: vx_max 2.2 m/s (8 km/h normal
+      # speed), max_vel_theta derived from the real min turning radius
+      # (wheelbase / tan(max_steering_angle) = 1.6 / tan(20 deg) = 4.4m) so
+      # DWB can't sample a turn tighter than the vehicle can physically
+      # steer: wz_max = vx_max / min_turning_r = 2.2 / 4.4 = 0.5 rad/s.
+      # min_vel_x is a small positive epsilon, not 0.0 - the
+      # ackermann_steering_controller derives steering angle from
+      # atan(wheelbase * wz / vx), which is degenerate at vx == 0, same
+      # reasoning as MPPI's vx_min.
+      min_vel_x: 0.05
+      min_vel_y: 0.0
+      max_vel_x: 2.2
+      max_vel_y: 0.0
+      max_vel_theta: 0.5
+      min_speed_xy: 0.0
+      max_speed_xy: 2.2
+      min_speed_theta: 0.0
+
+      acc_lim_x: 1.5
+      acc_lim_y: 0.0
+      acc_lim_theta: 1.0
+      decel_lim_x: -1.5
+      decel_lim_y: 0.0
+      decel_lim_theta: -1.0
+
+      vx_samples: 20
+      vy_samples: 1
+      vtheta_samples: 20
+
+      sim_time: 2.5
+      linear_granularity: 0.05
+      angular_granularity: 0.025
+      transform_tolerance: 0.2
+      xy_goal_tolerance: 0.25
+      trans_stopped_velocity: 0.25
+      short_circuit_trajectory_evaluation: true
+      stateful: true
+
+      # No RotateToGoal: that critic drives in-place rotation toward the
+      # goal heading, which an Ackermann vehicle physically cannot do
+      # (it can only turn while moving forward/backward). BaseObstacle is
+      # the key difference from MPPI's CostCritic - it hard-rejects any
+      # candidate trajectory whose footprint overlaps a lethal/inscribed
+      # costmap cell outright, instead of just adding a weighted penalty
+      # that PathAlign's pull toward the (possibly infeasible) naive
+      # straight-ahead carrot path can outweigh.
+      critics: ["Oscillation", "BaseObstacle", "GoalAlign", "PathAlign", "PathDist", "GoalDist"]
+      BaseObstacle.scale: 0.02
+      PathAlign.scale: 32.0
+      PathAlign.forward_point_distance: 0.1
+      GoalAlign.scale: 24.0
+      GoalAlign.forward_point_distance: 0.1
+      PathDist.scale: 32.0
+      GoalDist.scale: 24.0

@@ -1,0 +1,112 @@
+controller_server:
+  ros__parameters:
+    use_sim_time: true
+    controller_frequency: 10.0
+    min_x_velocity_threshold: 0.001
+    min_y_velocity_threshold: 0.5
+    min_theta_velocity_threshold: 0.001
+    failure_tolerance: 0.3
+    controller_plugins: ["FollowPath"]
+
+    FollowPath:
+      plugin: "nav2_mppi_controller::MPPIController"
+      time_steps: 56
+      # Must be >= 1/controller_frequency (0.1s here) - MPPI enforces this
+      # at configure time ("Controller period more then model dt").
+      model_dt: 0.1
+      batch_size: 2000
+      vx_std: 0.2
+      vy_std: 0.0
+      wz_std: 0.4
+      # vx_max ~ our normal_speed_kmh (8 km/h = 2.22 m/s). vx_min is a small
+      # positive epsilon, not exactly 0.0: the Ackermann motion model's
+      # turning-radius math (curvature = wz/vx) divides by linear velocity,
+      # and starting at rest (vx~0) hits that division exactly at zero,
+      # which is the leading suspect for the "Optimizer fail to compute
+      # path" error seen at startup. wz_max derived from vx_max /
+      # min_turning_r so the cap isn't tighter or looser than achievable.
+      vx_max: 2.2
+      vx_min: 0.05
+      vy_max: 0.0
+      wz_max: 0.55
+      ax_max: 1.5
+      ax_min: -1.5
+      ay_max: 0.0
+      az_max: 2.0
+      iteration_count: 1
+      prune_distance: 1.7
+      transform_tolerance: 0.1
+      temperature: 0.3
+      gamma: 0.015
+      motion_model: "Ackermann"
+      visualize: true
+      regenerate_noises: false
+
+      AckermannConstraints:
+        # Matches buggy_description's real kinematics:
+        # wheelbase / tan(max_steering_angle) = 1.6 / tan(20 deg) = 4.4m
+        min_turning_r: 4.4
+
+      TrajectoryVisualizer:
+        trajectory_step: 5
+        time_step: 3
+
+      critics: [
+        "ConstraintCritic", "CostCritic", "GoalCritic", "GoalAngleCritic",
+        "PathAlignCritic", "PathFollowCritic", "PathAngleCritic", "PreferForwardCritic"
+      ]
+
+      ConstraintCritic:
+        enabled: true
+        cost_power: 1
+        cost_weight: 4.0
+
+      GoalCritic:
+        enabled: true
+        cost_power: 1
+        cost_weight: 5.0
+
+      GoalAngleCritic:
+        enabled: true
+        cost_power: 1
+        cost_weight: 3.0
+        threshold_to_consider: 0.5
+
+      PreferForwardCritic:
+        enabled: true
+        cost_power: 1
+        cost_weight: 5.0
+        threshold_to_consider: 0.5
+
+      CostCritic:
+        enabled: true
+        cost_power: 1
+        cost_weight: 3.81
+        critical_cost: 300.0
+        consider_footprint: true
+        collision_cost: 1000000.0
+        near_goal_distance: 1.0
+
+      PathAlignCritic:
+        enabled: true
+        cost_power: 1
+        cost_weight: 14.0
+        max_path_occupancy_ratio: 0.05
+        trajectory_point_step: 4
+        threshold_to_consider: 0.5
+        offset_from_furthest: 20
+
+      PathFollowCritic:
+        enabled: true
+        cost_power: 1
+        cost_weight: 5.0
+        offset_from_furthest: 5
+        threshold_to_consider: 1.4
+
+      PathAngleCritic:
+        enabled: true
+        cost_power: 1
+        cost_weight: 2.0
+        offset_from_furthest: 4
+        threshold_to_consider: 0.5
+        max_angle_to_furthest: 1.0

@@ -1,0 +1,49 @@
+global_costmap:
+  global_costmap:
+    ros__parameters:
+      use_sim_time: true
+      update_frequency: 5.0
+      publish_frequency: 5.0
+      global_frame: odom
+      robot_base_frame: base_link
+      rolling_window: true
+      width: 20
+      height: 20
+      resolution: 0.1
+      footprint: "[[1.4097, 0.6731], [1.4097, -0.6731], [-1.4097, -0.6731], [-1.4097, 0.6731]]"
+      # No static_layer - there's no map, only the same rolling local
+      # window local_costmap uses. planner_server's NavfnPlanner sees
+      # everywhere outside sensor range as unknown (-1); allow_unknown in
+      # planner_server.yaml lets it plan through that (there's nothing else
+      # to plan through when the whole world is this rolling window).
+      plugins: ["obstacle_layer", "inflation_layer"]
+      obstacle_layer:
+        plugin: "nav2_costmap_2d::ObstacleLayer"
+        enabled: true
+        observation_sources: "non_ground_points"
+        non_ground_points:
+          topic: /non_ground_points_filtered
+          data_type: "PointCloud2"
+          sensor_frame: ""
+          marking: true
+          clearing: true
+          min_obstacle_height: -1.0
+          max_obstacle_height: 2.5
+          obstacle_max_range: 15.0
+          obstacle_min_range: 0.0
+          raytrace_max_range: 15.0
+          raytrace_min_range: 0.0
+      inflation_layer:
+        plugin: "nav2_costmap_2d::InflationLayer"
+        enabled: true
+        # This is the costmap NavfnPlanner actually plans the reference
+        # path over, so it matters most for centering: with a measured
+        # ~3.2m corridor width, inflation_radius needs to be roughly half
+        # that so both walls' cost gradients overlap in the middle -
+        # otherwise the corridor center is a flat, zero-cost dead zone and
+        # NavFn's shortest path has no reason to prefer the centerline over
+        # hugging one wall (confirmed: 2.3m clearance measured on one side
+        # vs 0.9m on the other at inflation_radius 0.75). Matches
+        # local_costmap.yaml's same change.
+        cost_scaling_factor: 3.0
+        inflation_radius: 1.6
