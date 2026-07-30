@@ -71,7 +71,7 @@ def generate_launch_description():
     planner_server_params = os.path.join(pkg_local_nav, 'config', 'planner_server.yaml')
     rviz_config = os.path.join(pkg_local_nav, 'rviz', 'bag_navigate.rviz')
 
-    carrot_distance_arg = DeclareLaunchArgument('carrot_distance', default_value='5.0')
+    carrot_distance_arg = DeclareLaunchArgument('carrot_distance', default_value='9.0')
     scan_distance_arg = DeclareLaunchArgument('scan_distance', default_value='9.0')
     dwb_sim_time_arg = DeclareLaunchArgument('dwb_sim_time', default_value='2.5')
     rviz_arg = DeclareLaunchArgument('rviz', default_value='true')

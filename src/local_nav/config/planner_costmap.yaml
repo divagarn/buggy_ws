@@ -10,7 +10,7 @@ global_costmap:
       width: 20
       height: 20
       resolution: 0.1
-      footprint: "[[1.4097, 0.6731], [1.4097, -0.6731], [-1.4097, -0.6731], [-1.4097, 0.6731]]"
+      footprint: "[[1.4150, 1.5147], [1.4508, -1.5276], [-1.3647, -1.4757], [-1.3537, 1.3593]]"
       # No static_layer - there's no map, only the same rolling local
       # window local_costmap uses. planner_server's NavfnPlanner sees
       # everywhere outside sensor range as unknown (-1); allow_unknown in
@@ -46,4 +46,4 @@ global_costmap:
         # vs 0.9m on the other at inflation_radius 0.75). Matches
         # local_costmap.yaml's same change.
         cost_scaling_factor: 3.0
-        inflation_radius: 1.6
+        inflation_radius: 1.3

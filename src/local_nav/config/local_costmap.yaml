@@ -13,7 +13,7 @@ local_costmap:
       # Actual chassis footprint (buggy_description: 2.8194m x 1.3462m),
       # not a crude circular approximation - matters for inflation accuracy
       # given this vehicle is long and narrow, not round.
-      footprint: "[[1.4097, 0.6731], [1.4097, -0.6731], [-1.4097, -0.6731], [-1.4097, 0.6731]]"
+      footprint: "[[1.4150, 1.5147], [1.4508, -1.5276], [-1.3647, -1.4757], [-1.3537, 1.3593]]"
       plugins: ["obstacle_layer", "inflation_layer"]
 
       obstacle_layer:
@@ -55,4 +55,4 @@ local_costmap:
         # 0.75). 1.6m makes the two gradients meet in the middle, biasing
         # the least-cost path toward the centerline.
         cost_scaling_factor: 3.0
-        inflation_radius: 1.6
+        inflation_radius: 1.3

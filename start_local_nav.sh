@@ -55,3 +55,6 @@ echo -e "\n${YELLOW}[3/3] Launching real_navigate.launch.py (loopback:=${LOOPBAC
 ros2 launch local_nav real_navigate.launch.py loopback:=${LOOPBACK}
 
 echo -e "\n${YELLOW}System shutdown complete${NC}"
+
+
+# ros2 launch local_nav real_navigate.launch.py carrot_distance:=7.0 scan_distance:=12.0
