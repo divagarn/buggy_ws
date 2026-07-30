@@ -87,11 +87,8 @@ class UartSender(Node):
         #     self.degree = 0.0
         #     self.get_logger().warn("[UART] No data from topic(s), forcing STOP: red=True, steering=0.0")
         self.get_logger().info(f"Sending UART message - yellow: {self.yellow_detected}, red: {self.red_detected}, angle: {self.degree}")
-        
-        # Check if DMS alert level is critical (3.0) to set critical flag
-        critical = (self.dms_alert_level == 3.0)
-        
-        self.uart.send(self.yellow_detected, self.red_detected, self.degree, critical_flag=critical)
+
+        self.uart.send(self.yellow_detected, self.red_detected, self.degree)
     
     def shutdown(self):
         """Clean shutdown of the node"""

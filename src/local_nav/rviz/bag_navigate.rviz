@@ -289,6 +289,18 @@ Visualization Manager:
         Reliability Policy: Reliable
         Value: /steering_actual_vs_target
       Value: true
+    - Class: rviz_default_plugins/Marker
+      Enabled: true
+      Name: Robot Radius
+      Namespaces:
+        robot_radius: true
+      Topic:
+        Depth: 5
+        Durability Policy: Volatile
+        History Policy: Keep Last
+        Reliability Policy: Reliable
+        Value: /robot_radius_marker
+      Value: true
   Enabled: true
   Global Options:
     Background Color: 15; 15; 20

@@ -75,64 +75,66 @@ class UartInterface:
                 
         except serial.SerialException as e:
             logging.error(f"Failed to connect to UART port {self.port}: {e}")
-    
-    def create_message(self, yellow_detected=False, red_detected=False, degree=0, critical_flag=False):
+    def create_message(self, yellow_detected=False, red_detected=False, degree=0):
         """
         Create a message following the protocol.
-        
+
+        6 bytes, no critical-flag byte: matches the original ROS1 protocol
+        the MCU firmware actually expects (hardware-confirmed - a 7-byte
+        packet with an extra DMS critical-flag byte inserted before END
+        was never accepted/acted on by the buggy; a standalone non-ROS
+        pyserial test with that byte removed was).
+
         Args:
             yellow_detected (bool): Yellow object detection status
             red_detected (bool): Red object detection status
             degree (float): Steering angle in degrees
-            critical_flag (bool): Critical DMS alert flag (1 if alert level 3, else 0)
-            
+
         Returns:
             bytearray: Formatted message according to protocol
         """
         # Clamp degree value to the specified range
         degree = max(min(degree, DEGREE_RANGE[1]), DEGREE_RANGE[0])
-        
+
         # Calculate the raw value using the formula
         raw_value = int((degree - OFFSET) / RESOLUTION)
-        
+
         # Ensure raw value is within 16-bit signed integer range
         raw_value = max(min(raw_value, 32767), -32768)
-        
+
         # Convert raw value to bytes (2 bytes for 16-bit signed value)
         raw_value_bytes = raw_value.to_bytes(2, byteorder='big', signed=True)
-        
+
         yellow_zone = 1 if yellow_detected else 0
         red_zone = 1 if red_detected else 0
-        critical_byte = 1 if critical_flag else 0
-        
-        # Build the message as a bytearray
+
+        # Build the message as a bytearray - 6 bytes, matching the
+        # original ROS1 protocol the MCU firmware actually expects.
         message = bytearray()
         message.append(PROTOCOL_START)  # Start byte '('
         message.append(yellow_zone)     # Yellow detection
         message.append(red_zone)        # Red detection
         message.extend(raw_value_bytes) # Raw value bytes (2 bytes)
-        message.append(critical_byte)   # Critical alert flag (1 if DMS alert level 3, else 0)
         message.append(PROTOCOL_END)    # End byte ')'
-        
+
         return message
-    
-    def send(self, yellow_detected, red_detected, degree, critical_flag=False):
+
+    def send(self, yellow_detected, red_detected, degree):
         """
         Send a message over UART.
-        
+
         Args:
             yellow_detected (bool): Yellow object detection status
             red_detected (bool): Red object detection status
             degree (float): Steering angle in degrees
-            critical_flag (bool): Critical DMS alert flag (1 if alert level 3, else 0)
-            
+
         Returns:
             bool: True if message sent successfully, False otherwise
         """
-        message = self.create_message(yellow_detected, red_detected, degree, critical_flag)
+        message = self.create_message(yellow_detected, red_detected, degree)
         
         if self.ros_logger:
-            self.ros_logger.info(f"Sending UART - angle: {degree:.2f}, yellow: {yellow_detected}, red: {red_detected}, critical: {int(critical_flag)}")
+            self.ros_logger.info(f"Sending UART - angle: {degree:.2f}, yellow: {yellow_detected}, red: {red_detected}")
         # Log in hex and ASCII format
         ascii_str = ''.join(chr(byte) if 32 <= byte <= 126 else f'\\x{byte:02x}' for byte in message)
         logging.info(f"Message packet (hex): {message.hex()}")
