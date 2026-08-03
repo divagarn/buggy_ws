@@ -10,14 +10,14 @@ Then this launch file brings up the rest: velodyne_static_tf (base_link ->
 velodyne - no live driver needed, the bag already has /velodyne_points) ->
 segment_ground -> self_hit_filter -> wheel_odometry (/wheel_uart -> /odom +
 TF, same integrator as real_navigate.launch.py) -> costmaps -> planner_server
-(NavFn) -> DWB -> steering_uart_bridge (still publishes /steering_angle etc
+(SmacPlannerHybrid) -> TEB -> steering_uart_bridge (still publishes /steering_angle etc
 so you can watch what WOULD be sent, even though nothing here actually
 drives the vehicle - see below) + RViz.
 
 This is an OPEN-LOOP test: the bag replays a fixed, already-recorded
 sensor stream regardless of what our stack decides to do, so it validates
 perception/planning quality (does segment_ground/self_hit_filter/costmap/
-NavFn/DWB behave sensibly against real data?) but NOT closed-loop control -
+SmacPlannerHybrid/TEB behave sensibly against real data?) but NOT closed-loop control -
 the vehicle's actual recorded motion in the bag won't change based on our
 computed commands. There is no uart_sender_node or uart_bridge here: the
 bag already supplies /wheel_uart directly (no live serial device to read
@@ -66,19 +66,17 @@ def generate_launch_description():
     pkg_local_nav = get_package_share_directory('local_nav')
 
     costmap_params = os.path.join(pkg_local_nav, 'config', 'local_costmap.yaml')
-    dwb_params = os.path.join(pkg_local_nav, 'config', 'dwb_controller.yaml')
+    teb_params = os.path.join(pkg_local_nav, 'config', 'teb_controller.yaml')
     planner_costmap_params = os.path.join(pkg_local_nav, 'config', 'planner_costmap.yaml')
-    planner_server_params = os.path.join(pkg_local_nav, 'config', 'planner_server.yaml')
+    planner_server_params = os.path.join(pkg_local_nav, 'config', 'smac_planner_server.yaml')
     rviz_config = os.path.join(pkg_local_nav, 'rviz', 'bag_navigate.rviz')
 
-    carrot_distance_arg = DeclareLaunchArgument('carrot_distance', default_value='9.0')
-    scan_distance_arg = DeclareLaunchArgument('scan_distance', default_value='9.0')
-    dwb_sim_time_arg = DeclareLaunchArgument('dwb_sim_time', default_value='2.5')
+    carrot_distance_arg = DeclareLaunchArgument('carrot_distance', default_value='13.0')
+    scan_distance_arg = DeclareLaunchArgument('scan_distance', default_value='13.0')
     rviz_arg = DeclareLaunchArgument('rviz', default_value='true')
 
     carrot_distance = ParameterValue(LaunchConfiguration('carrot_distance'), value_type=float)
     scan_distance = ParameterValue(LaunchConfiguration('scan_distance'), value_type=float)
-    dwb_sim_time = ParameterValue(LaunchConfiguration('dwb_sim_time'), value_type=float)
 
     velodyne_static_tf = Node(
         package='ground_segmentation',
@@ -117,10 +115,7 @@ def generate_launch_description():
         executable='controller_server',
         name='controller_server',
         output='screen',
-        parameters=[
-            costmap_params, dwb_params,
-            {'FollowPath.sim_time': dwb_sim_time, 'use_sim_time': True},
-        ],
+        parameters=[costmap_params, teb_params, {'use_sim_time': True}],
         remappings=[
             ('cmd_vel', '/cmd_vel'),
         ],
@@ -186,7 +181,6 @@ def generate_launch_description():
     return LaunchDescription([
         carrot_distance_arg,
         scan_distance_arg,
-        dwb_sim_time_arg,
         rviz_arg,
         velodyne_static_tf,
         segment_ground,

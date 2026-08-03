@@ -24,12 +24,16 @@
   <depend>nav2_mppi_controller</depend>
   <depend>dwb_core</depend>
   <depend>dwb_critics</depend>
+  <depend>teb_local_planner</depend>
+  <depend>costmap_converter</depend>
   <depend>nav2_planner</depend>
   <depend>nav2_navfn_planner</depend>
+  <depend>nav2_smac_planner</depend>
   <depend>nav2_msgs</depend>
   <depend>nav2_lifecycle_manager</depend>
   <depend>ground_segmentation_msgs</depend>
   <depend>visualization_msgs</depend>
+  <depend>umrr_ros2_msgs</depend>
 
   <test_depend>ament_copyright</test_depend>
   <test_depend>ament_flake8</test_depend>

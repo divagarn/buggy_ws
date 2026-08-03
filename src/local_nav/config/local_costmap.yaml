@@ -7,8 +7,22 @@ local_costmap:
       global_frame: odom
       robot_base_frame: base_link
       rolling_window: true
-      width: 20
-      height: 20
+      # Square, not the old 40x20: this window rolls in the odom (global)
+      # frame, not robot-relative, so an asymmetric window gives visibility
+      # that varies with the vehicle's current heading - as little as
+      # +-10m (the old height/2) depending on which way a given corner
+      # happens to face in odom coordinates. Confirmed live: the vehicle
+      # drove itself into an inside corner with no >=4.4m-radius Dubin path
+      # left to reach a large opening it should have caught much earlier -
+      # SmacPlannerHybrid returned "no valid path found" for minutes
+      # straight. 30x30 gives a uniform +-15m in every direction regardless
+      # of heading, room for carrot_path_publisher's scan_distance/
+      # carrot_distance to be raised well past the old 9.0m cap. Total
+      # cells barely change (40*20=800 -> 30*30=900, in units of 100m^2)
+      # despite fixing the asymmetry, since the oversized 40m axis shrinks
+      # as the undersized 20m axis grows.
+      width: 30
+      height: 30
       resolution: 0.1
       # Actual chassis footprint (buggy_description: 2.8194m x 1.3462m),
       # not a crude circular approximation - matters for inflation accuracy
@@ -28,7 +42,14 @@ local_costmap:
         # LiDAR returns, a Gazebo-only artifact) removed by self_hit_filter -
         # without it, the self-hit blob overlaps the robot's own footprint
         # and every MPPI rollout starts already "in collision".
-        observation_sources: "non_ground_points"
+        # radar_targets: UMRR-A4 Type 171 Automotive radar (real driver:
+        # smartmicro_ros2_radars/umrr_ros2_driver; in Gazebo, radar_sim.py
+        # stands in for it since Gazebo Classic has no native mmWave radar
+        # plugin - see that file's docstring). Second, independent
+        # obstacle source alongside the LiDAR - narrower FOV and it only
+        # ever republishes what the LiDAR already derived in sim, so this
+        # is redundancy/fusion-path testing here, not new sensor coverage.
+        observation_sources: "non_ground_points radar_targets"
         non_ground_points:
           topic: /non_ground_points_filtered
           data_type: "PointCloud2"
@@ -37,6 +58,22 @@ local_costmap:
           clearing: true
           min_obstacle_height: -1.0
           max_obstacle_height: 2.5
+          obstacle_max_range: 15.0
+          obstacle_min_range: 0.0
+          raytrace_max_range: 15.0
+          raytrace_min_range: 0.0
+        radar_targets:
+          topic: /smart_radar/can_targets_0
+          data_type: "PointCloud2"
+          sensor_frame: "umrr"
+          marking: true
+          clearing: true
+          min_obstacle_height: -1.0
+          max_obstacle_height: 2.5
+          # Capped to match non_ground_points/the 30x30 costmap window,
+          # even though radar_sim.py's own FOV filter already limits to
+          # 60m - keeps both sources bounded consistently at the
+          # costmap-config level too, not just upstream in the publisher.
           obstacle_max_range: 15.0
           obstacle_min_range: 0.0
           raytrace_max_range: 15.0

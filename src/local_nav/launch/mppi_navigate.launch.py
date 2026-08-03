@@ -1,25 +1,41 @@
 """Map-free local navigation: Gazebo -> segment_ground -> local costmap
--> planner_server (NavfnPlanner, real path planning ~5m ahead)
--> DWB (dwb_core::DWBLocalPlanner) -> ackermann_steering_controller.
+-> planner_server (SmacPlannerHybrid, real path planning ~5m ahead)
+-> TEB (teb_local_planner::TebLocalPlannerROS) -> ackermann_steering_controller.
 
-Two fixes layered on top of each other here:
-1. MPPI -> DWB: MPPI's CostCritic is a soft weighted penalty, and
-   PathAlignCritic's pull toward the reference path (which could point
-   straight through a wall) was winning that tug-of-war often enough to
-   still hit walls even after the self-hit-filter fix. DWB's BaseObstacle
-   critic hard-rejects any candidate trajectory whose footprint overlaps a
-   lethal/inscribed costmap cell outright, so obstacle avoidance can't be
-   out-voted by path-following desire. dwb_controller.yaml has the
-   details; mppi_controller.yaml is kept for reference/rollback.
-2. Naive straight-line reference path -> real planning: carrot_path_publisher
-   used to just extend a straight line ahead of the vehicle and hand it to
-   the controller as-is, trusting the controller to deviate around
-   whatever was in the way. That's not path *planning*, and a straight
-   line into a wall gave the controller a reference it fundamentally
-   couldn't reconcile with obstacle avoidance. planner_server
-   (nav2_navfn_planner) now computes a real, obstacle-avoiding path
-   through the rolling local costmap out to ~5m ahead, and that computed
-   path is what gets hand to DWB - not a straight line.
+Global planner history: NavfnPlanner (smac_planner_server.yaml's predecessor,
+planner_server.yaml, kept for reference/rollback) -> SmacPlannerHybrid.
+NavfnPlanner's Dijkstra search has no notion of the vehicle's kinematics, so
+its shortest path could bend tighter than this Ackermann buggy can actually
+steer - drivability was left entirely to TEB to fix up downstream.
+SmacPlannerHybrid (Hybrid-A*) searches motion primitives directly, so
+minimum_turning_radius (4.4m, same value as TEB's) is a hard constraint on
+the global plan itself.
+
+Local controller history: MPPI -> DWB -> TEB.
+- MPPI's CostCritic was a soft weighted penalty, and PathAlignCritic's
+  pull toward the reference path (which could point straight through a
+  wall) was winning that tug-of-war often enough to still hit walls even
+  after the self-hit-filter fix. mppi_controller.yaml kept for reference.
+- DWB's BaseObstacle critic fixed that (hard-rejects any candidate
+  trajectory overlapping a lethal cell outright), but DWB has no native
+  Ackermann motion model - it only caps angular velocity, which can still
+  imply an unrealistic steering angle at low speed (curvature = wz/vx
+  blows up as vx -> 0), the reason dwb_controller.yaml needed a vx_min
+  epsilon workaround. dwb_controller.yaml kept for reference.
+- TEB (teb_controller.yaml) has native car-like support:
+  min_turning_radius/wheelbase are real constraints the trajectory
+  optimizer enforces directly, not a per-sample ratio - no equivalent
+  division-by-zero case, no epsilon workaround needed.
+
+Naive straight-line reference path -> real planning: carrot_path_publisher
+used to just extend a straight line ahead of the vehicle and hand it to
+the controller as-is, trusting the controller to deviate around whatever
+was in the way. That's not path *planning*, and a straight line into a
+wall gave the controller a reference it fundamentally couldn't reconcile
+with obstacle avoidance. planner_server (SmacPlannerHybrid) now computes
+a real, obstacle-avoiding path through the rolling local costmap out to
+~5m ahead, and that computed path is what gets handed to the local
+controller - not a straight line.
 
 Unlike navigate.launch.py / gazebo_navigate.launch.py, this path does NOT
 use obstacle_detector, steering_calculator_node, or topic_relay_node - the
@@ -27,16 +43,17 @@ local planner + controller handle obstacle avoidance directly from the
 costmap (built from /non_ground_points_filtered), so the reactive
 lateral-histogram chain isn't in the loop at all here.
 
-Three tunable distances, all overridable from the command line
+Two tunable distances, overridable from the command line
 (`ros2 launch local_nav mppi_navigate.launch.py carrot_distance:=8.0 ...`):
-  - carrot_distance: how far ahead the /plan goal (sent to NavfnPlanner)
+  - carrot_distance: how far ahead the /plan goal (sent to SmacPlannerHybrid)
     is placed.
   - scan_distance: how far ahead carrot_path_publisher looks when scanning
     for the clearest turn direction - kept larger than carrot_distance so
     a corner is noticed with enough room left to actually turn into it.
-  - dwb_sim_time: DWB's own local trajectory rollout horizon (seconds);
-    this is what /local_plan reflects each cycle - actual distance is
-    roughly dwb_sim_time * current speed.
+TEB's own local horizon (unlike DWB's single dwb_sim_time number) is
+governed by several params in teb_controller.yaml directly
+(max_global_plan_lookahead_dist, dt_ref, max_samples) - no single
+launch-time override for it here.
 """
 
 import os
@@ -45,7 +62,7 @@ from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription
 from launch.launch_description_sources import PythonLaunchDescriptionSource
-from launch.substitutions import LaunchConfiguration
+from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
 from launch_ros.actions import Node
 from launch_ros.parameter_descriptions import ParameterValue
 
@@ -55,31 +72,45 @@ def generate_launch_description():
     pkg_local_nav = get_package_share_directory('local_nav')
 
     costmap_params = os.path.join(pkg_local_nav, 'config', 'local_costmap.yaml')
-    dwb_params = os.path.join(pkg_local_nav, 'config', 'dwb_controller.yaml')
+    teb_params = os.path.join(pkg_local_nav, 'config', 'teb_controller.yaml')
     planner_costmap_params = os.path.join(pkg_local_nav, 'config', 'planner_costmap.yaml')
-    planner_server_params = os.path.join(pkg_local_nav, 'config', 'planner_server.yaml')
+    planner_server_params = os.path.join(pkg_local_nav, 'config', 'smac_planner_server.yaml')
 
-    carrot_distance_arg = DeclareLaunchArgument('carrot_distance', default_value='9.0')
-    scan_distance_arg = DeclareLaunchArgument('scan_distance', default_value='9.0')
-    dwb_sim_time_arg = DeclareLaunchArgument('dwb_sim_time', default_value='2.5')
+    carrot_distance_arg = DeclareLaunchArgument('carrot_distance', default_value='13.0')
+    scan_distance_arg = DeclareLaunchArgument('scan_distance', default_value='13.0')
+    # World file name only (not a full path) - looked up under
+    # buggy_description/worlds/. Defaults match rect_loop_track.world's own
+    # spawn point (bottom corridor centerline); override all four together
+    # when switching to a world with a different layout, e.g.
+    # varying_width_track.world's south leg uses the same spawn as
+    # rect_loop_track.world (both are 7m there) so the defaults work for
+    # either, but closed_loop_track2.world (Building Editor floor plan)
+    # needs spawn_x:=5.0 spawn_y:=5.0.
+    world_file_arg = DeclareLaunchArgument(
+        'world_file', default_value='rect_loop_track.world',
+        description='World file under buggy_description/worlds/, e.g. '
+                    'rect_loop_track.world, varying_width_track.world, closed_loop_track2.world')
+    spawn_x_arg = DeclareLaunchArgument('spawn_x', default_value='0.0')
+    spawn_y_arg = DeclareLaunchArgument('spawn_y', default_value='-9.5')
+    spawn_yaw_arg = DeclareLaunchArgument('spawn_yaw', default_value='0.0')
 
     # ParameterValue(..., value_type=float) coerces the launch argument's
-    # string substitution to an actual float parameter - without it, DWB/
+    # string substitution to an actual float parameter - without it,
     # carrot_path_publisher would get a string and reject it with a
     # "Wrong parameter type" error at configure time.
     carrot_distance = ParameterValue(LaunchConfiguration('carrot_distance'), value_type=float)
     scan_distance = ParameterValue(LaunchConfiguration('scan_distance'), value_type=float)
-    dwb_sim_time = ParameterValue(LaunchConfiguration('dwb_sim_time'), value_type=float)
 
     gazebo = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
             os.path.join(pkg_buggy_description, 'launch', 'gazebo.launch.py')
         ),
         launch_arguments={
-            'world': os.path.join(
-                pkg_buggy_description, 'worlds', 'closed_loop_track2.world'),
-            'spawn_x': '5.0',
-            'spawn_y': '5.0',
+            'world': PathJoinSubstitution(
+                [pkg_buggy_description, 'worlds', LaunchConfiguration('world_file')]),
+            'spawn_x': LaunchConfiguration('spawn_x'),
+            'spawn_y': LaunchConfiguration('spawn_y'),
+            'spawn_yaw': LaunchConfiguration('spawn_yaw'),
         }.items(),
     )
 
@@ -114,6 +145,30 @@ def generate_launch_description():
         output='screen',
     )
 
+    # UMRR-A4 Type 171 Automotive radar (smartmicro_ros2_radars) stand-in -
+    # Gazebo Classic has no native mmWave radar plugin, so this derives a
+    # sparse, FOV-limited target list from the same obstacle geometry the
+    # Velodyne already sees and publishes it on the real driver's exact
+    # topic/message contract. Fused into local_costmap/planner_costmap as
+    # a second obstacle_layer source (see those yamls' radar_targets
+    # entry) - sim-only, real_navigate.launch.py uses the actual
+    # umrr_ros2_driver node instead once that's wired in.
+    radar_sim = Node(
+        package='local_nav',
+        executable='radar_sim',
+        name='radar_sim',
+        output='screen',
+        # Unlike self_hit_filter (which just passes through
+        # ground_segmentation's already-sim-timed header unchanged), this
+        # node stamps brand-new messages via self.get_clock().now() each
+        # cycle - without use_sim_time, that's wall-clock time while the
+        # rest of the stack (TF, costmap) runs on Gazebo's sim clock,
+        # which silently drops every observation as "earlier than all the
+        # data in the transform cache" (same use_sim_time bug class fixed
+        # in bag_navigate.launch.py/real_navigate.launch.py earlier).
+        parameters=[{'use_sim_time': True}],
+    )
+
     # controller_server creates and owns its own "local_costmap" internally
     # by default (confirmed via its startup log: "[local_costmap.local_costmap]:
     # Creating Costmap" printed from within the controller_server process) -
@@ -127,11 +182,7 @@ def generate_launch_description():
         executable='controller_server',
         name='controller_server',
         output='screen',
-        # dwb_params first, then the dotted override - later entries in
-        # this list win for any parameter both provide, which is how a
-        # single nested value (FollowPath.sim_time) gets overridden
-        # without needing a whole separate yaml file.
-        parameters=[costmap_params, dwb_params, {'FollowPath.sim_time': dwb_sim_time}],
+        parameters=[costmap_params, teb_params],
         remappings=[
             ('cmd_vel', '/ackermann_steering_controller/reference_unstamped'),
         ],
@@ -195,11 +246,15 @@ def generate_launch_description():
     return LaunchDescription([
         carrot_distance_arg,
         scan_distance_arg,
-        dwb_sim_time_arg,
+        world_file_arg,
+        spawn_x_arg,
+        spawn_y_arg,
+        spawn_yaw_arg,
         gazebo,
         segment_ground,
         self_hit_filter,
         tf_odom_relay,
+        radar_sim,
         controller_server,
         planner_server,
         lifecycle_manager,

@@ -1,7 +1,7 @@
 """Real-hardware counterpart of mppi_navigate.launch.py: same costmap ->
-planner_server (NavFn) -> DWB stack, but driven by the real Velodyne and
-real wheel feedback instead of Gazebo, and actuating over real UART
-instead of ackermann_steering_controller.
+planner_server (SmacPlannerHybrid) -> TEB stack, but driven by the real
+Velodyne and real wheel feedback instead of Gazebo, and actuating over
+real UART instead of ackermann_steering_controller.
 
 Differences from the sim launch:
   - velodyne (real VLP16 driver, not Gazebo's simulated LiDAR plugin) +
@@ -10,7 +10,7 @@ Differences from the sim launch:
   - wheel_odometry: neither the real vehicle nor its existing reactive
     pipeline has ever needed odom->base_link TF or a nav_msgs/Odometry -
     that pipeline works entirely in sensor-relative space. This stack's
-    costmaps (global_frame: odom) and DWB (velocity feedback via its
+    costmaps (global_frame: odom) and TEB (velocity feedback via its
     odom_topic param) both need one, so wheel_odometry integrates
     /wheel_uart (via uart_bridge, real wheel feedback: steering degrees +
     speed km/h, both already calibrated by the vehicle's MCU) into
@@ -55,13 +55,12 @@ def generate_launch_description():
     pkg_velodyne_pointcloud = get_package_share_directory('velodyne_pointcloud')
 
     costmap_params = os.path.join(pkg_local_nav, 'config', 'local_costmap.yaml')
-    dwb_params = os.path.join(pkg_local_nav, 'config', 'dwb_controller.yaml')
+    teb_params = os.path.join(pkg_local_nav, 'config', 'teb_controller.yaml')
     planner_costmap_params = os.path.join(pkg_local_nav, 'config', 'planner_costmap.yaml')
-    planner_server_params = os.path.join(pkg_local_nav, 'config', 'planner_server.yaml')
+    planner_server_params = os.path.join(pkg_local_nav, 'config', 'smac_planner_server.yaml')
 
-    carrot_distance_arg = DeclareLaunchArgument('carrot_distance', default_value='9.0')
-    scan_distance_arg = DeclareLaunchArgument('scan_distance', default_value='9.0')
-    dwb_sim_time_arg = DeclareLaunchArgument('dwb_sim_time', default_value='2.5')
+    carrot_distance_arg = DeclareLaunchArgument('carrot_distance', default_value='13.0')
+    scan_distance_arg = DeclareLaunchArgument('scan_distance', default_value='13.0')
     loopback_arg = DeclareLaunchArgument(
         'loopback', default_value='true',
         description='uart_sender_node loopback mode - true exercises the full code path '
@@ -72,7 +71,6 @@ def generate_launch_description():
 
     carrot_distance = ParameterValue(LaunchConfiguration('carrot_distance'), value_type=float)
     scan_distance = ParameterValue(LaunchConfiguration('scan_distance'), value_type=float)
-    dwb_sim_time = ParameterValue(LaunchConfiguration('dwb_sim_time'), value_type=float)
     loopback = ParameterValue(LaunchConfiguration('loopback'), value_type=bool)
 
     # Not the stock velodyne-all-nodes-VLP16-launch.py: that hardcodes
@@ -180,7 +178,7 @@ def generate_launch_description():
 
     # use_sim_time: False here (and on every node in this launch file) is
     # not just a stylistic default - local_costmap.yaml/planner_costmap.yaml/
-    # dwb_controller.yaml all hardcode use_sim_time: true (written for
+    # teb_controller.yaml all hardcode use_sim_time: true (written for
     # Gazebo, which publishes /clock). On real hardware nothing publishes
     # /clock at all, so a use_sim_time:true node's ROS clock never advances
     # past zero - every real, genuinely-fresh sensor timestamp then looks
@@ -192,15 +190,15 @@ def generate_launch_description():
     # opposite: use_sim_time true + --clock, to match the bag's own
     # recorded time instead of wall-clock). Confirmed via
     # /local_costmap/costmap coming back 100% free before this fix.
+    # The {'use_sim_time': False} dict must come after teb_params in this
+    # list - later entries win, overriding teb_controller.yaml's own
+    # hardcoded use_sim_time: true.
     controller_server = Node(
         package='nav2_controller',
         executable='controller_server',
         name='controller_server',
         output='screen',
-        parameters=[
-            costmap_params, dwb_params,
-            {'FollowPath.sim_time': dwb_sim_time, 'use_sim_time': False},
-        ],
+        parameters=[costmap_params, teb_params, {'use_sim_time': False}],
         remappings=[
             ('cmd_vel', '/cmd_vel'),
         ],
@@ -269,7 +267,6 @@ def generate_launch_description():
     return LaunchDescription([
         carrot_distance_arg,
         scan_distance_arg,
-        dwb_sim_time_arg,
         loopback_arg,
         sender_port_arg,
         feedback_port_arg,

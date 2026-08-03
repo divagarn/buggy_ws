@@ -31,6 +31,7 @@ setup(
             'self_hit_filter = local_nav.self_hit_filter:main',
             'steering_uart_bridge = local_nav.steering_uart_bridge:main',
             'wheel_odometry = local_nav.wheel_odometry:main',
+            'radar_sim = local_nav.radar_sim:main',
         ],
     },
 )

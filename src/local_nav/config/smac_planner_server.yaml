@@ -1,0 +1,66 @@
+planner_server:
+  ros__parameters:
+    use_sim_time: true
+    expected_planner_frequency: 1.0
+    planner_plugins: ["GridBased"]
+    GridBased:
+      plugin: "nav2_smac_planner/SmacPlannerHybrid"
+
+      # NavfnPlanner (planner_server.yaml, kept for reference/rollback) has
+      # no concept of the vehicle's kinematics - its Dijkstra shortest path
+      # can bend at any angle, including ones tighter than this Ackermann
+      # buggy can actually steer, which is why the reference path handed to
+      # TEB sometimes needed reshaping into something drivable downstream.
+      # SmacPlannerHybrid (Hybrid-A*) searches directly over a motion-primitive
+      # state space, so minimum_turning_radius is a hard constraint on the
+      # plan itself, not something the local controller has to fix up after
+      # the fact.
+      downsample_costmap: false
+      downsampling_factor: 1
+      angle_quantization_bins: 72
+      tolerance: 0.5
+      allow_unknown: true  # same reason as planner_server.yaml: rolling window, no static map behind it
+      max_iterations: 1000000
+      max_on_approach_iterations: 1000
+      # Default is 5.0s - too slow for this stack's ~1Hz replan cadence
+      # (expected_planner_frequency above, carrot_path_publisher's
+      # resend_period_sec) on an already CPU-constrained machine (see
+      # teb_controller.yaml's controller_frequency note). If plans start
+      # timing out at 2.0s in practice, raise this back up - a slow plan
+      # is still better than a failed one.
+      max_planning_time: 2.0
+
+      # DUBIN (forward-only motion primitives): matches the same
+      # never-plan-backward intent as teb_controller.yaml's
+      # allow_init_with_backwards_motion: false - REEDS_SHEPP would let the
+      # global plan itself include reverse segments, which we have no
+      # actuation path for (steering_uart_bridge.py has no reverse
+      # handling) and have never validated on the real vehicle.
+      motion_model_for_search: "DUBIN"
+
+      # Same value as teb_controller.yaml's min_turning_radius: wheelbase
+      # (1.6m) / tan(max_steering_angle 20deg) = 4.4m - the real vehicle's
+      # physical turning-radius floor, not a guess.
+      minimum_turning_radius: 4.4
+
+      reverse_penalty: 2.0
+      change_penalty: 0.0
+      non_straight_penalty: 1.2
+      cost_penalty: 2.0
+      retrospective_penalty: 0.015
+      analytic_expansion_ratio: 3.5
+      analytic_expansion_max_length: 3.0
+      lookup_table_size: 20.0
+      cache_obstacle_heuristic: false
+
+      # Hybrid-A*'s raw output is still motion-primitive-quantized
+      # (angle_quantization_bins above); this post-processing pass is what
+      # actually makes the curve continuous/centered rather than a series
+      # of discrete steps.
+      smooth_path: true
+      smoother:
+        max_iterations: 1000
+        w_smooth: 0.3
+        w_data: 0.2
+        tolerance: 1.0e-10
+        do_refinement: true

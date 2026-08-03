@@ -7,8 +7,11 @@ global_costmap:
       global_frame: odom
       robot_base_frame: base_link
       rolling_window: true
-      width: 20
-      height: 20
+      # Same fix and same reasoning as local_costmap.yaml's width/height
+      # comment: square window so visibility doesn't depend on which way
+      # the vehicle happens to be facing in the odom frame.
+      width: 30
+      height: 30
       resolution: 0.1
       footprint: "[[1.4150, 1.5147], [1.4508, -1.5276], [-1.3647, -1.4757], [-1.3537, 1.3593]]"
       # No static_layer - there's no map, only the same rolling local
@@ -20,11 +23,25 @@ global_costmap:
       obstacle_layer:
         plugin: "nav2_costmap_2d::ObstacleLayer"
         enabled: true
-        observation_sources: "non_ground_points"
+        # radar_targets: see local_costmap.yaml's comment - UMRR-A4 Type
+        # 171 Automotive radar (radar_sim.py stand-in in Gazebo).
+        observation_sources: "non_ground_points radar_targets"
         non_ground_points:
           topic: /non_ground_points_filtered
           data_type: "PointCloud2"
           sensor_frame: ""
+          marking: true
+          clearing: true
+          min_obstacle_height: -1.0
+          max_obstacle_height: 2.5
+          obstacle_max_range: 15.0
+          obstacle_min_range: 0.0
+          raytrace_max_range: 15.0
+          raytrace_min_range: 0.0
+        radar_targets:
+          topic: /smart_radar/can_targets_0
+          data_type: "PointCloud2"
+          sensor_frame: "umrr"
           marking: true
           clearing: true
           min_obstacle_height: -1.0
