@@ -174,9 +174,14 @@ def generate_launch_description():
     # with the online model database disabled below, those fail to
     # resolve at all.
     GAZEBO_SYSTEM_MODELS_DIR = '/usr/share/gazebo-11/models'
+    # Package-tracked models (e.g. "office_track1") live under
+    # buggy_description/models, installed by CMakeLists.txt - unlike
+    # BUILDING_EDITOR_MODELS_DIR these are version-controlled with the repo.
+    pkg_models_dir = os.path.join(get_package_share_directory('buggy_description'), 'models')
     set_model_path = SetEnvironmentVariable(
         name='GAZEBO_MODEL_PATH',
         value=[
+            pkg_models_dir, os.pathsep,
             BUILDING_EDITOR_MODELS_DIR, os.pathsep,
             GAZEBO_SYSTEM_MODELS_DIR, os.pathsep,
             os.environ.get('GAZEBO_MODEL_PATH', ''),

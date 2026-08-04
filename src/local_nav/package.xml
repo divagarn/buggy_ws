@@ -35,6 +35,16 @@
   <depend>visualization_msgs</depend>
   <depend>umrr_ros2_msgs</depend>
 
+  <!-- Lane-following mode (carrot_path_publisher._build_lane_path):
+       medial-axis skeleton of the local costmap's free space, graph
+       search along it. python3-scipy already ubiquitous in ROS installs
+       (used for distance/KD-tree queries here); python3-skimage
+       (skeletonize) and python3-networkx (shortest_path) are the two
+       actually-new dependencies this mode adds. -->
+  <exec_depend>python3-scipy</exec_depend>
+  <exec_depend>python3-skimage</exec_depend>
+  <exec_depend>python3-networkx</exec_depend>
+
   <test_depend>ament_copyright</test_depend>
   <test_depend>ament_flake8</test_depend>
   <test_depend>ament_pep257</test_depend>

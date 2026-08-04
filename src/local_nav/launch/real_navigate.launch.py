@@ -45,6 +45,7 @@ import os
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument
+from launch.conditions import IfCondition, UnlessCondition
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
 from launch_ros.parameter_descriptions import ParameterValue
@@ -58,6 +59,7 @@ def generate_launch_description():
     teb_params = os.path.join(pkg_local_nav, 'config', 'teb_controller.yaml')
     planner_costmap_params = os.path.join(pkg_local_nav, 'config', 'planner_costmap.yaml')
     planner_server_params = os.path.join(pkg_local_nav, 'config', 'smac_planner_server.yaml')
+    rviz_config = os.path.join(pkg_local_nav, 'rviz', 'bag_navigate.rviz')
 
     carrot_distance_arg = DeclareLaunchArgument('carrot_distance', default_value='13.0')
     scan_distance_arg = DeclareLaunchArgument('scan_distance', default_value='13.0')
@@ -68,10 +70,38 @@ def generate_launch_description():
                     '/odom, and the costmap have all been watched and look correct.')
     sender_port_arg = DeclareLaunchArgument('sender_port', default_value='/dev/ttyUSB0')
     feedback_port_arg = DeclareLaunchArgument('feedback_port', default_value='/dev/ttyUSB0')
+    # false: skip planner_server (SmacPlannerHybrid) entirely and drive TEB
+    # off carrot_path_publisher's own straight-line-to-picked-goal fallback
+    # instead (see that node's use_global_planner param/docstring).
+    use_global_planner_arg = DeclareLaunchArgument(
+        'use_global_planner', default_value='true',
+        description='true: plan through planner_server/SmacPlannerHybrid before handing '
+                    'TEB a path (default). false: skip the global planner, TEB follows a '
+                    'straight line to the same obstacle-aware goal instead.')
+    rviz_arg = DeclareLaunchArgument('rviz', default_value='true')
+    centering_weight_arg = DeclareLaunchArgument('centering_weight', default_value='2.0')
+    corridor_check_distance_arg = DeclareLaunchArgument('corridor_check_distance', default_value='3.0')
+    waypoint_step_m_arg = DeclareLaunchArgument('waypoint_step_m', default_value='1.5')
+    max_waypoint_steps_arg = DeclareLaunchArgument('max_waypoint_steps', default_value='50')
+    goal_xy_tolerance_arg = DeclareLaunchArgument('goal_xy_tolerance', default_value='0.5')
+    use_lane_following_arg = DeclareLaunchArgument(
+        'use_lane_following', default_value='false',
+        description='true: navigate along the medial-axis skeleton of the local costmap '
+                    '(_build_lane_path) instead of either other technique - exactly centered, '
+                    'no oscillation risk, independent of corridor width.')
+    lane_simplify_epsilon_arg = DeclareLaunchArgument('lane_simplify_epsilon', default_value='0.3')
 
     carrot_distance = ParameterValue(LaunchConfiguration('carrot_distance'), value_type=float)
     scan_distance = ParameterValue(LaunchConfiguration('scan_distance'), value_type=float)
     loopback = ParameterValue(LaunchConfiguration('loopback'), value_type=bool)
+    use_global_planner = ParameterValue(LaunchConfiguration('use_global_planner'), value_type=bool)
+    centering_weight = ParameterValue(LaunchConfiguration('centering_weight'), value_type=float)
+    corridor_check_distance = ParameterValue(LaunchConfiguration('corridor_check_distance'), value_type=float)
+    waypoint_step_m = ParameterValue(LaunchConfiguration('waypoint_step_m'), value_type=float)
+    max_waypoint_steps = ParameterValue(LaunchConfiguration('max_waypoint_steps'), value_type=int)
+    goal_xy_tolerance = ParameterValue(LaunchConfiguration('goal_xy_tolerance'), value_type=float)
+    use_lane_following = ParameterValue(LaunchConfiguration('use_lane_following'), value_type=bool)
+    lane_simplify_epsilon = ParameterValue(LaunchConfiguration('lane_simplify_epsilon'), value_type=float)
 
     # Not the stock velodyne-all-nodes-VLP16-launch.py: that hardcodes
     # calibration to the standard VLP16db.yaml with no way to override it
@@ -108,7 +138,7 @@ def generate_launch_description():
             'repeat_delay': 0.0,
             'frame_id': 'velodyne',
             'model': 'VLP16',
-            'rpm': 600.0,
+            'rpm': 1200.0,
             'port': 2368,
             'timestamp_first_packet': False,
             'use_sim_time': False,
@@ -210,8 +240,15 @@ def generate_launch_description():
         name='planner_server',
         output='screen',
         parameters=[planner_costmap_params, planner_server_params, {'use_sim_time': False}],
+        condition=IfCondition(LaunchConfiguration('use_global_planner')),
     )
 
+    # Split in two (rather than one lifecycle_manager with a launch-time-
+    # conditional node_names list) because node_names needs a concrete
+    # Python list at description-build time - LaunchConfiguration values
+    # aren't resolved until launch time, so there's no way to branch on
+    # use_global_planner's actual value here. Only one of these two actually
+    # launches (IfCondition/UnlessCondition on the same argument).
     lifecycle_manager = Node(
         package='nav2_lifecycle_manager',
         executable='lifecycle_manager',
@@ -222,6 +259,19 @@ def generate_launch_description():
             'autostart': True,
             'node_names': ['planner_server', 'controller_server'],
         }],
+        condition=IfCondition(LaunchConfiguration('use_global_planner')),
+    )
+    lifecycle_manager_no_planner = Node(
+        package='nav2_lifecycle_manager',
+        executable='lifecycle_manager',
+        name='lifecycle_manager_local_nav',
+        output='screen',
+        parameters=[{
+            'use_sim_time': False,
+            'autostart': True,
+            'node_names': ['controller_server'],
+        }],
+        condition=UnlessCondition(LaunchConfiguration('use_global_planner')),
     )
 
     carrot_path_publisher = Node(
@@ -236,6 +286,14 @@ def generate_launch_description():
             'controller_id': 'FollowPath',
             'planner_id': 'GridBased',
             'odom_topic': '/odom',
+            'use_global_planner': use_global_planner,
+            'centering_weight': centering_weight,
+            'corridor_check_distance': corridor_check_distance,
+            'waypoint_step_m': waypoint_step_m,
+            'max_waypoint_steps': max_waypoint_steps,
+            'goal_xy_tolerance': goal_xy_tolerance,
+            'use_lane_following': use_lane_following,
+            'lane_simplify_epsilon': lane_simplify_epsilon,
             'use_sim_time': False,
         }],
     )
@@ -264,12 +322,31 @@ def generate_launch_description():
         }],
     )
 
+    rviz2 = Node(
+        package='rviz2',
+        executable='rviz2',
+        name='rviz2',
+        arguments=['-d', rviz_config],
+        output='screen',
+        parameters=[{'use_sim_time': False}],
+        condition=IfCondition(LaunchConfiguration('rviz')),
+    )
+
     return LaunchDescription([
         carrot_distance_arg,
         scan_distance_arg,
         loopback_arg,
         sender_port_arg,
         feedback_port_arg,
+        use_global_planner_arg,
+        rviz_arg,
+        centering_weight_arg,
+        corridor_check_distance_arg,
+        waypoint_step_m_arg,
+        max_waypoint_steps_arg,
+        goal_xy_tolerance_arg,
+        use_lane_following_arg,
+        lane_simplify_epsilon_arg,
         velodyne_driver_node,
         velodyne_transform_node,
         velodyne_static_tf,
@@ -280,7 +357,9 @@ def generate_launch_description():
         controller_server,
         planner_server,
         lifecycle_manager,
+        lifecycle_manager_no_planner,
         carrot_path_publisher,
         steering_uart_bridge,
         uart_sender,
+        rviz2,
     ])

@@ -7,7 +7,7 @@ controller_server:
     # is more expensive than DWB's forward-simulate-and-score approach,
     # and this machine is already CPU-constrained (segment_ground alone
     # runs single-core at ~1Hz under load).
-    controller_frequency: 5.0
+    controller_frequency: 10.0
     controller_plugins: ["FollowPath"]
 
     FollowPath:
@@ -27,16 +27,20 @@ controller_server:
       # hard disable) is NOT safe - TEB logs it as undefined behavior at
       # startup, since the optimizer bound (max_vel_x_backwards -
       # penalty_epsilon) goes negative whenever max_vel_x_backwards <=
-      # penalty_epsilon (0.1). 0.2 is TEB's own upstream default (see
-      # teb_config.h robot.max_vel_x_backwards) and stays safely above
-      # penalty_epsilon. Note weight_kinematics_forward_drive below has NO
+      # penalty_epsilon (0.1). 0.12 stays safely above penalty_epsilon
+      # (same reasoning as the upstream default of 0.2, just closer to the
+      # floor - the real "no reverse" enforcement is upstream of TEB
+      # anyway, in carrot_path_publisher's forward-cone restriction on
+      # which headings _pick_goal_heading is even allowed to pick; this is
+      # only the backstop for whatever tiny residual TEB might still try
+      # on its own). Note weight_kinematics_forward_drive below has NO
       # effect here - it's only read by AddEdgesKinematicsDiffDrive(); this
       # config's nonzero min_turning_radius + weight_kinematics_turning_radius
       # makes TEB pick AddEdgesKinematicsCarlike() instead (see
-      # optimal_planner.cpp), which has no forward-preference term - the 0.2
-      # cap itself (vs. 2.2 forward) is what keeps backward motion rare.
+      # optimal_planner.cpp), which has no forward-preference term - the
+      # cap itself (vs. max_vel_x forward) is what keeps backward motion rare.
       allow_init_with_backwards_motion: false
-      max_global_plan_lookahead_dist: 5.0
+      max_global_plan_lookahead_dist: 9.0
       global_plan_viapoint_sep: 0.5
       global_plan_prune_distance: 1.0
       exact_arc_length: false
@@ -54,10 +58,10 @@ controller_server:
       # optimizer enforces min_turning_radius as a real kinematic
       # constraint on the entire trajectory, not a per-sample ratio - no
       # equivalent division-by-zero case exists here.
-      max_vel_x: 2.2
-      max_vel_x_backwards: 0.2
+      max_vel_x: 1.5
+      max_vel_x_backwards: 0.0
       max_vel_theta: 0.5
-      acc_lim_x: 1.5
+      acc_lim_x: 0.5
       acc_lim_theta: 1.0
       min_turning_radius: 4.4
       wheelbase: 1.6

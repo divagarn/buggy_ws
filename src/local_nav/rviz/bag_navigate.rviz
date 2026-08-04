@@ -14,6 +14,9 @@ Panels:
         - /Global Costmap1
         - /Plan1
         - /Local Plan1
+        - /Goal Marker1
+        - /Lane Marker1
+        - /Sub Goals1
         - /Steering1
         - /Steering Actual vs Target1
       Splitter Ratio: 0.5
@@ -264,6 +267,43 @@ Visualization Manager:
         History Policy: Keep Last
         Reliability Policy: Reliable
         Value: /local_plan
+      Value: true
+    - Class: rviz_default_plugins/Marker
+      Enabled: true
+      Name: Goal Marker
+      Namespaces:
+        goal: true
+      Topic:
+        Depth: 5
+        Durability Policy: Volatile
+        History Policy: Keep Last
+        Reliability Policy: Reliable
+        Value: /goal_marker
+      Value: true
+    - Class: rviz_default_plugins/Marker
+      Enabled: true
+      Name: Lane Marker
+      Namespaces:
+        lane: true
+      Topic:
+        Depth: 5
+        Durability Policy: Volatile
+        History Policy: Keep Last
+        Reliability Policy: Reliable
+        Value: /lane_marker
+      Value: true
+    - Arrow Color: 255; 140; 0
+      Arrow Length: 0.6
+      Class: rviz_default_plugins/PoseArray
+      Enabled: true
+      Name: Sub Goals
+      Shape: Arrow (Flat)
+      Topic:
+        Depth: 5
+        Durability Policy: Volatile
+        History Policy: Keep Last
+        Reliability Policy: Reliable
+        Value: /sub_goals
       Value: true
     - Class: rviz_default_plugins/MarkerArray
       Enabled: true

@@ -4,7 +4,7 @@ project(buggy_description)
 find_package(ament_cmake REQUIRED)
 
 install(
-  DIRECTORY urdf launch rviz meshes config worlds
+  DIRECTORY urdf launch rviz meshes config worlds models
   DESTINATION share/${PROJECT_NAME}
 )
 

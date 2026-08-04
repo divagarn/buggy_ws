@@ -24,7 +24,7 @@
     <sensor name="velodyne_sensor" type="ray">
       <pose>0 0 0 0 0 0</pose>
       <visualize>false</visualize>
-      <update_rate>10</update_rate>
+      <update_rate>15</update_rate>
       <ray>
         <scan>
           <horizontal>
