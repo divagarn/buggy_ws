@@ -6,13 +6,20 @@
        across that range gives the real unit's 1.33 deg per-channel
        spacing - narrower/denser than the standard Puck/VLP-16's +/-15 deg,
        2 deg spacing), 360 deg horizontal, 10 Hz rotation, 1-100m range.
-       Horizontal samples set to 1800/rev to match the real unit's ~0.2 deg
-       azimuth resolution at 10Hz - this is 5x heavier on CPU raycasting
-       than a coarser scan would be (Gazebo Classic's gpu_ray only supports
-       a single vertical ray, so multi-channel scanning is stuck on the
-       CPU-based "ray" type either way). Publishes PointCloud2 on
-       /velodyne_points to match the topic ground_segmentation's ported
-       nodes subscribe to.
+       Publishes PointCloud2 on /velodyne_points to match the topic
+       ground_segmentation's ported nodes subscribe to.
+
+       Horizontal samples reduced from the real unit's ~0.2 deg azimuth
+       resolution (1800/rev) to 600/rev (~0.6 deg) - Gazebo Classic's ray
+       sensor is CPU raycasting, single-threaded, and 1800x16=28800 rays/
+       scan at 15Hz (~432k rays/sec) was enough on its own to peg one core
+       at 100% and drop real-time factor well below 1.0 regardless of how
+       many other cores were free (gpu_ray isn't an option here - it only
+       supports a single vertical ray in this Gazebo Classic version, so
+       multi-channel scanning is stuck on the CPU "ray" type either way).
+       600/rev is still dense enough for wall-following/obstacle detection
+       at these speeds; bump back toward 1800 if testing needs finer
+       angular resolution and CPU headroom allows it.
 
        Note: the narrower +/-10 deg FOV means the ground blind spot right
        around the vehicle is actually LARGER than the standard Puck would
@@ -28,7 +35,7 @@
       <ray>
         <scan>
           <horizontal>
-            <samples>1800</samples>
+            <samples>600</samples>
             <resolution>1.0</resolution>
             <min_angle>-3.14159265</min_angle>
             <max_angle>3.14159265</max_angle>

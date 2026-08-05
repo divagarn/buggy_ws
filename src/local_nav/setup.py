@@ -32,6 +32,11 @@ setup(
             'steering_uart_bridge = local_nav.steering_uart_bridge:main',
             'wheel_odometry = local_nav.wheel_odometry:main',
             'radar_sim = local_nav.radar_sim:main',
+            'localization_creep = local_nav.localization_creep:main',
+            'pause_resume_console = local_nav.pause_resume_console:main',
+            'posegraph_align_creep = local_nav.posegraph_align_creep:main',
+            'initialpose_to_slam_toolbox = local_nav.initialpose_to_slam_toolbox:main',
+            'planner_tuning_client = local_nav.planner_tuning_client:main',
         ],
     },
 )

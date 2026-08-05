@@ -19,6 +19,7 @@
   <depend>std_msgs</depend>
   <depend>tf2_ros</depend>
   <depend>tf2_msgs</depend>
+  <depend>slam_toolbox</depend>
   <depend>nav2_costmap_2d</depend>
   <depend>nav2_controller</depend>
   <depend>nav2_mppi_controller</depend>
@@ -30,6 +31,7 @@
   <depend>nav2_navfn_planner</depend>
   <depend>nav2_smac_planner</depend>
   <depend>nav2_msgs</depend>
+  <depend>action_msgs</depend>
   <depend>nav2_lifecycle_manager</depend>
   <depend>ground_segmentation_msgs</depend>
   <depend>visualization_msgs</depend>

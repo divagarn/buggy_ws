@@ -27,9 +27,16 @@
       <pose>-10.075 -46.475 0 0 0 0</pose>
     </include>
 
+    <!-- Gazebo Classic's ODE physics step runs on a single thread - 1000
+         steps/sec (the original 0.001 max_step_size) pegs one CPU core at
+         100% regardless of how many cores are free, and on a core that
+         isn't fast enough to keep up, real-time factor drops well below
+         1.0 (observed as low as ~2-3% on one machine). 250 steps/sec is
+         still plenty for a wheeled ground vehicle at these speeds and
+         cuts the per-second physics work 4x. -->
     <physics type="ode">
-      <real_time_update_rate>1000.0</real_time_update_rate>
-      <max_step_size>0.001</max_step_size>
+      <real_time_update_rate>250.0</real_time_update_rate>
+      <max_step_size>0.004</max_step_size>
     </physics>
   </world>
 </sdf>

@@ -14,19 +14,22 @@
 # mean threading a map<->odom transform through carrot_path_publisher
 # itself - out of scope here. nav2_costmap_2d's StaticLayer works fine
 # under a costmap whose global_frame differs from the static map's own
-# frame, AS LONG AS a valid TF exists between them - slam_toolbox
-# (localization mode) provides exactly that (map -> odom), continuously
-# corrected by scan-matching against the saved map.
+# frame, AS LONG AS a valid TF exists between them - AMCL provides exactly
+# that (map -> odom), continuously corrected by particle-filter localization
+# against the saved map (see closed_loop_navigate.launch.py's docstring;
+# this used to be slam_toolbox in localization mode, swapped for AMCL to
+# support placing the vehicle anywhere in the map instead of one fixed
+# known start pose).
 #
-# KNOWN LIMITATION: because global_frame is odom, not map, this only lines
-# up correctly if odom's origin is close to where it was when the map was
-# recorded - i.e. start closed_loop_navigate.launch.py from roughly the
-# same pose mapping.launch.py was started from. Starting from a very
-# different pose won't break localization (slam_toolbox still corrects
-# map->odom fine), but the static map content is placed at fixed odom-frame
-# coordinates taken from the saved map's own origin, so a large odom offset
-# from the map's origin could shift the map away from where the vehicle
-# actually is.
+# KNOWN LIMITATION: StaticLayer only looks up the map->odom transform ONCE,
+# when it first receives /map, not continuously - so whatever odom offset
+# AMCL has produced AT THAT MOMENT gets baked into the costmap permanently
+# for the rest of the run, even if AMCL's estimate later improves as more
+# particles converge. closed_loop_navigate.launch.py's localization_settle_time
+# exists specifically to delay planner_server (and therefore this static_layer's
+# first /map subscription) until AMCL has had time to converge - see that
+# launch file's docstring. Bringing this costmap up before convergence
+# finishes will latch onto the wrong offset for good.
 #
 # rolling_window MUST be false here - this is the whole point of this
 # config vs. local_nav's planner_costmap.yaml. A rolling window recenters

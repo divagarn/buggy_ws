@@ -58,7 +58,7 @@ controller_server:
       # optimizer enforces min_turning_radius as a real kinematic
       # constraint on the entire trajectory, not a per-sample ratio - no
       # equivalent division-by-zero case exists here.
-      max_vel_x: 1.5
+      max_vel_x: 2.5
       max_vel_x_backwards: 0.0
       max_vel_theta: 0.5
       acc_lim_x: 0.5
