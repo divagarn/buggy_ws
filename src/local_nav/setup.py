@@ -37,6 +37,10 @@ setup(
             'posegraph_align_creep = local_nav.posegraph_align_creep:main',
             'initialpose_to_slam_toolbox = local_nav.initialpose_to_slam_toolbox:main',
             'planner_tuning_client = local_nav.planner_tuning_client:main',
+            'kinematic_sim = local_nav.kinematic_sim:main',
+            'follow_path_trigger = local_nav.follow_path_trigger:main',
+            'track_centerline_marker = local_nav.track_centerline_marker:main',
+            'local_centerline_marker = local_nav.local_centerline_marker:main',
         ],
     },
 )

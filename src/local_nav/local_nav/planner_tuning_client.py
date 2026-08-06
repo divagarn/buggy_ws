@@ -10,18 +10,22 @@ since nothing is actually simulating physics or sensors.
 Use RViz's "2D Pose Estimate" to set a START point, then "2D Goal Pose" to
 set a GOAL - each goal click immediately calls planner_server's
 compute_path_to_pose action with use_start=True (both poses given
-explicitly, exactly as clicked), so no fake TF/robot pose is needed at
-all. Logs success/failure, planning_time, and path length to the
-console, and republishes the resulting path on plan_topic (default
-/tuning_plan) for RViz's Path display. Re-click "2D Goal Pose" as many
-times as you want from the same start; re-click "2D Pose Estimate" to
-try a different start.
+explicitly, exactly as clicked). Logs success/failure, planning_time, and
+path length to the console, and republishes the resulting path on
+plan_topic (default /tuning_plan) for RViz's Path display. Re-click "2D
+Goal Pose" as many times as you want from the same start; re-click "2D
+Pose Estimate" to try a different start.
 
-(The global costmap will log periodic "Timed out waiting for transform
-from base_link to odom" warnings the whole time this runs - harmless
-here, it's costmap_2d's own robot-pose-for-obstacle-clearing lookup,
-which has nothing to do with the explicit start/goal poses this tool
-actually plans between.)
+use_start=True does NOT eliminate the need for TF entirely - see
+tune_planner_standalone.launch.py's own docstring: planner_server still
+transforms both poses into the costmap's global_frame (odom, per
+global_costmap_mapped.yaml) before planning, so a map->odom transform
+must exist (that launch file publishes a static identity one) or every
+plan is aborted with "Could not transform the start or goal pose in the
+costmap frame" regardless of what start/goal you give. The periodic
+"Timed out waiting for transform from base_link to odom" warnings ARE
+still harmless, though - that's costmap_2d's separate robot-pose-for-
+obstacle-clearing lookup, unrelated to planning between explicit poses.
 """
 
 import math

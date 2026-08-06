@@ -38,17 +38,20 @@ pkill -9 -f "local_nav/wheel_odometry" 2>/dev/null
 pkill -9 -f "local_nav/tf_odom_relay" 2>/dev/null
 pkill -9 -f "local_nav/carrot_path_publisher" 2>/dev/null
 pkill -9 -f "local_nav/steering_uart_bridge" 2>/dev/null
+pkill -9 -f "local_nav/initialpose_to_slam_toolbox" 2>/dev/null
 
 pkill -9 -f "uart_bridge" 2>/dev/null
 pkill -9 -f "uart_sender_node" 2>/dev/null
 pkill -9 -f "velodyne_driver_node" 2>/dev/null
 pkill -9 -f "velodyne_transform_node" 2>/dev/null
+pkill -9 -f "slam_toolbox" 2>/dev/null
+pkill -9 -f "pointcloud_to_laserscan" 2>/dev/null
 
 pkill -9 -f "steering_teleop" 2>/dev/null
 
 sleep 2
 
-REMAINING=$(ps -ef | grep -iE "ros2 launch|ros2 bag play|rviz2|gzserver|gzclient|nav2_controller|nav2_planner|nav2_lifecycle_manager|segment_ground|velodyne_static_tf|self_hit_filter|wheel_odometry|tf_odom_relay|carrot_path_publisher|steering_uart_bridge|steering_teleop|uart_bridge|uart_sender_node|velodyne_driver_node|velodyne_transform_node" | grep -v grep | grep -v "kill_all.sh")
+REMAINING=$(ps -ef | grep -iE "ros2 launch|ros2 bag play|rviz2|gzserver|gzclient|nav2_controller|nav2_planner|nav2_lifecycle_manager|segment_ground|velodyne_static_tf|self_hit_filter|wheel_odometry|tf_odom_relay|carrot_path_publisher|steering_uart_bridge|steering_teleop|uart_bridge|uart_sender_node|velodyne_driver_node|velodyne_transform_node|slam_toolbox|initialpose_to_slam_toolbox|pointcloud_to_laserscan" | grep -v grep | grep -v "kill_all.sh")
 if [ -z "$REMAINING" ]; then
     echo -e "${GREEN}All clear - nothing left running.${NC}"
 else

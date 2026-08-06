@@ -17,7 +17,7 @@ controller_server:
       teb_autosize: 1.0
       dt_ref: 0.3
       dt_hysteresis: 0.1
-      max_samples: 500
+      max_samples: 800
       global_plan_overwrite_orientation: false
       # Discourage backward motion: steering_uart_bridge.py currently treats
       # any commanded vx below min_forward_speed as final_red_detected=True
@@ -98,8 +98,19 @@ controller_server:
       # tracking overhead costmap_converter would otherwise do.
       include_dynamic_obstacles: false
 
+      # false, not true: costmap_converter::CostmapToPolygonsDBSMCCH's
+      # destructor segfaults joining its own spin thread (confirmed via
+      # apport crash report + gdb backtrace - controller_server crashed
+      # 43 times in one day on real hardware, every time on shutdown/
+      # cleanup: SIGTERM -> ControllerServer::on_cleanup -> TEB plugin
+      # destructor -> CostmapToPolygonsDBSMCCH::~CostmapToPolygonsDBSMCCH
+      # -> std::thread::join() -> SIGSEGV in __pthread_clockjoin_ex). No
+      # separate thread means nothing for that destructor to mishandle.
+      # Trade-off: costmap conversion now runs inline on controller_server's
+      # own update cycle instead of its own thread - some CPU cost, but
+      # this machine already runs everything else inline too.
       costmap_converter_plugin: "costmap_converter::CostmapToPolygonsDBSMCCH"
-      costmap_converter_spin_thread: true
+      costmap_converter_spin_thread: false
       costmap_converter_rate: 5
 
       # Optimization
