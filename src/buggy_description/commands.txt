@@ -1,0 +1,139 @@
+cd /home/divagar/buggy_ros2/divagar_test1_ws
+source /opt/ros/humble/setup.bash
+colcon build --packages-select buggy_description
+source install/setup.bash
+
+
+Launch (spawn + drivable), default empty world:
+
+
+ros2 launch buggy_description gazebo.launch.py
+Same, but into one of the track worlds instead of empty ground (spawn point should be clear of walls — these all default to 5,5 which is empty-world-safe, override for a track):
+
+
+ros2 launch buggy_description gazebo.launch.py \
+    world:=$(ros2 pkg prefix buggy_description)/share/buggy_description/worlds/office_track.world \
+    spawn_x:=0.0 spawn_y:=-3.0 spawn_yaw:=0.0
+Other worlds available the same way: rect_loop_track.world, closed_loop_track.world, closed_loop_track2.world, closed_loop_track3.world, varying_width_track.world.
+
+Headless (no gzclient GUI, e.g. over SSH or for quick checks): add gui:=false.
+
+Drive it manually (separate terminal, once Gazebo is up):
+
+
+ros2 topic pub /ackermann_steering_controller/reference_unstamped geometry_msgs/msg/Twist \
+    '{linear: {x: 0.5}, angular: {z: 0.1}}' --rate 10
+Topic is reference_unstamped, not reference — that's how ackermann_controllers.yaml is configured (plain Twist, not TwistStamped).
+
+Let me know what to add next (Velodyne/perception, wheel odometry, teleop_twist_keyboard wiring, etc.) and I'll build it into this same workspace step by step.
+
+
+
+
+
+
+
+
+
+
+
+Here are all three launch commands with full args, plus how to drive the vehicle after each one.
+
+1. Sensors only (sensors_bringup.launch.py)
+
+cd /home/divagar/buggy_ros2/divagar_test1_ws
+source /opt/ros/humble/setup.bash && source install/setup.bash
+
+ros2 launch buggy_sensors sensors_bringup.launch.py \
+    world_file:=office_track.world \
+    spawn_x:=0.0 spawn_y:=-3.0 spawn_yaw:=0.0 \
+    gui:=true \
+    ground_filter:=true
+2. 2D mapping (mapping_2d.launch.py)
+
+ros2 launch buggy_mapping mapping_2d.launch.py \
+    world_file:=office_track.world \
+    spawn_x:=0.0 spawn_y:=-3.0 spawn_yaw:=0.0 \
+    gui:=true rviz:=true \
+    ground_filter:=true
+3. 3D mapping (mapping_3d.launch.py)
+
+ros2 launch buggy_mapping mapping_3d.launch.py \
+    world_file:=office_track.world \
+    spawn_x:=0.0 spawn_y:=-3.0 spawn_yaw:=0.0 \
+    gui:=true \
+    ground_filter:=true
+Other worlds available for world_file:=: rect_loop_track.world, closed_loop_track.world, closed_loop_track2.world, closed_loop_track3.world, varying_width_track.world.
+
+How to move the bot (any of the three, in a separate terminal)
+Option A — keyboard teleop (recommended, interactive driving — needs a real terminal for keypresses, won't work as a background launch):
+
+
+source /opt/ros/humble/setup.bash
+ros2 run teleop_twist_keyboard teleop_twist_keyboard \
+    --ros-args -r cmd_vel:=/ackermann_steering_controller/reference_unstamped
+Then use the usual i/j/k/l keys in that terminal to drive/steer, k to stop.
+
+Option B — one-shot manual command (no interactivity, useful for quick checks):
+
+
+ros2 topic pub /ackermann_steering_controller/reference_unstamped geometry_msgs/msg/Twist \
+    '{linear: {x: 0.6}, angular: {z: 0.15}}' --rate 10
+linear.x = forward speed (m/s), angular.z = turn rate — positive turns left, negative turns right. Ctrl+C to stop (it'll keep publishing the last command until then).
+
+The topic is reference_unstamped, not reference — that's how ackermann_controllers.yaml is configured (plain Twist, not TwistStamped), same as buggy_description's own launch note.
+
+If you're doing 2D mapping, drive the full loop before saving (ros2 service call /slam_toolbox/serialize_map ...) — anything you don't drive past stays blank in the map.
+
+
+
+1. Sensors only (sensors_bringup.launch.py)
+
+cd /home/divagar/buggy_ros2/divagar_test1_ws
+source /opt/ros/humble/setup.bash && source install/setup.bash
+
+ros2 launch buggy_sensors sensors_bringup.launch.py \
+    world_file:=office_track.world \
+    spawn_x:=0.0 spawn_y:=-3.0 spawn_yaw:=0.0 \
+    gui:=true \
+    ground_filter:=true
+2. 2D mapping (mapping_2d.launch.py)
+
+ros2 launch buggy_mapping mapping_2d.launch.py \
+    world_file:=office_track.world \
+    spawn_x:=0.0 spawn_y:=-3.0 spawn_yaw:=0.0 \
+    gui:=true rviz:=true \
+    ground_filter:=true
+3. 3D mapping (mapping_3d.launch.py)
+
+ros2 launch buggy_mapping mapping_3d.launch.py \
+    world_file:=office_track.world \
+    spawn_x:=0.0 spawn_y:=-3.0 spawn_yaw:=0.0 \
+    gui:=true \
+    ground_filter:=true
+Other worlds available for world_file:=: rect_loop_track.world, closed_loop_track.world, closed_loop_track2.world, closed_loop_track3.world, varying_width_track.world.
+
+How to move the bot (any of the three, in a separate terminal)
+Option A — keyboard teleop (recommended, interactive driving — needs a real terminal for keypresses, won't work as a background launch):
+
+
+source /opt/ros/humble/setup.bash
+ros2 run teleop_twist_keyboard teleop_twist_keyboard \
+    --ros-args -r cmd_vel:=/ackermann_steering_controller/reference_unstamped
+Then use the usual i/j/k/l keys in that terminal to drive/steer, k to stop.
+
+Option B — one-shot manual command (no interactivity, useful for quick checks):
+
+
+ros2 topic pub /ackermann_steering_controller/reference_unstamped geometry_msgs/msg/Twist \
+    '{linear: {x: 0.6}, angular: {z: 0.15}}' --rate 10
+linear.x = forward speed (m/s), angular.z = turn rate — positive turns left, negative turns right. Ctrl+C to stop (it'll keep publishing the last command until then).
+
+The topic is reference_unstamped, not reference — that's how ackermann_controllers.yaml is configured (plain Twist, not TwistStamped), same as buggy_description's own launch note.
+
+If you're doing 2D mapping, drive the full loop before saving (ros2 service call /slam_toolbox/serialize_map ...) — anything you don't drive past stays blank in the map.
+
+
+
+
+python3 /home/divagar/buggy_ros2/divagar_test1_ws/src/buggy_uart/scripts/check_uart.py /dev/ttyUSB0 --speed-test --speed-cap 5 --duration 10 --live

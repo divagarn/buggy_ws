@@ -1,1 +1,0 @@
-# MediaPipe DMS Utilities Package
