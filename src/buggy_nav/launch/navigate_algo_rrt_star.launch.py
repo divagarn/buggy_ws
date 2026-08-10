@@ -112,6 +112,12 @@ def generate_launch_description():
         description='false (default here): plain single-goal behavior, one "2D Goal '
                     'Pose" click per leg. true: first goal reached auto-chains a '
                     'return-to-start leg (full closed loop).')
+    target_speed_kmph_arg = DeclareLaunchArgument(
+        'target_speed_kmph', default_value='4.0',
+        description='Fixed speed the real buggy actually drives at (2 or 4 km/h are the '
+                    'two real presets) - speed_governor forces the sim vehicle to this '
+                    'exact speed whenever moving, since the real UART protocol has no '
+                    'speed command at all (steering angle + stop/go flags only).')
 
     carrot_distance = ParameterValue(LaunchConfiguration('carrot_distance'), value_type=float)
     scan_distance = ParameterValue(LaunchConfiguration('scan_distance'), value_type=float)
@@ -136,7 +142,29 @@ def generate_launch_description():
         output='screen',
         parameters=[costmap_params, teb_params, {'use_sim_time': True}],
         remappings=[
-            ('cmd_vel', '/ackermann_steering_controller/reference_unstamped'),
+            # NOT the final Gazebo topic anymore - speed_governor sits in
+            # between and republishes the actual driven command onto
+            # /ackermann_steering_controller/reference_unstamped. See that
+            # node's own docstring for why (TEB's freely-varying speed has
+            # no real-hardware equivalent - the real buggy only accepts a
+            # steering angle, speed is fixed in the vehicle itself).
+            ('cmd_vel', '/cmd_vel_raw'),
+        ],
+    )
+
+    speed_governor = Node(
+        package='buggy_nav',
+        executable='speed_governor',
+        name='speed_governor',
+        output='screen',
+        parameters=[{
+            'target_speed_kmph': LaunchConfiguration('target_speed_kmph'),
+            'wheelbase': 1.6,
+            'max_steering_deg': 20.0,
+            'use_sim_time': True,
+        }],
+        remappings=[
+            ('cmd_vel_in', '/cmd_vel_raw'),
         ],
     )
 
@@ -246,7 +274,9 @@ def generate_launch_description():
         use_lane_following_arg,
         lane_simplify_epsilon_arg,
         auto_return_to_start_arg,
+        target_speed_kmph_arg,
         controller_server,
+        speed_governor,
         planner_server,
         lifecycle_manager,
         lifecycle_manager_no_planner,

@@ -27,6 +27,7 @@ setup(
         'console_scripts': [
             'carrot_path_publisher = buggy_nav.carrot_path_publisher:main',
             'rrt_star_planner_node = buggy_nav.rrt_star_planner_node:main',
+            'speed_governor = buggy_nav.speed_governor:main',
         ],
     },
 )
