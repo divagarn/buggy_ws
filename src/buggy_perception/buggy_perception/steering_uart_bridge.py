@@ -6,11 +6,19 @@ The local nav pipeline's controller (DWB) publishes a geometry_msgs/Twist
 actually moves the simulated vehicle. On the real golf cart there is no
 ackermann_steering_controller: the physical steering/motor hardware is
 driven by uart_sender_node.py (unmodified team code), which subscribes to
-/steering_angle (std_msgs/Float32, degrees) and the /final_red_detected /
-/final_yellow_detected (std_msgs/Bool) stop/caution flags and writes them
-out over serial. Without this bridge, switching this pipeline from Gazebo
-to the real vehicle has no path to actually move it - DWB's Twist would
-have nowhere real to go.
+/steering_angle (std_msgs/Float32, degrees), /final_red_detected
+(std_msgs/Bool, stop), and /final_yellow_detected (std_msgs/Bool) and
+writes them out over serial. Without this bridge, switching this pipeline
+from Gazebo to the real vehicle has no path to actually move it - DWB's
+Twist would have nowhere real to go.
+
+/final_yellow_detected is NOT a caution indicator despite the name - see
+target_speed_kmph's own comment in __init__ for what it actually is
+(confirmed by hardware testing): the real vehicle's SPEED PRESET
+SELECTOR. The UART packet (uart_interface.py) has no numeric speed field
+at all - yellow/red together are the entire speed contract:
+yellow=1,red=0 -> 2 km/h; yellow=0,red=0 -> 4 km/h; red=1 -> stopped
+(speed irrelevant).
 
 Converts the same (linear.x, angular.z) Twist DWB publishes into that
 contract - the exact inverse of sim_bridge/sim_actuation_bridge.py's
@@ -49,6 +57,7 @@ import numpy as np
 import rclpy
 from rclpy.node import Node
 from geometry_msgs.msg import Twist
+from nav_msgs.msg import Odometry, Path
 from std_msgs.msg import Float32, Bool
 from visualization_msgs.msg import Marker, MarkerArray
 from ground_segmentation_msgs.msg import SteerSpeed
@@ -67,6 +76,23 @@ class SteeringUartBridge(Node):
         cmd_vel_topic = self.declare_parameter(
             'cmd_vel_topic', '/ackermann_steering_controller/reference_unstamped').value
 
+        # yellow is NOT a generic "caution" flag - on the real hardware it
+        # is the SPEED PRESET SELECTOR (confirmed by hardware testing,
+        # 2026-08): yellow=1,red=0 -> 2 km/h preset; yellow=0,red=0 ->
+        # 4 km/h preset. Neither preset is commanded as a number anywhere
+        # (see uart_interface.py's 6-byte packet - no speed field exists);
+        # this boolean is the ENTIRE speed contract. Threshold at the
+        # midpoint of the two known presets so target_speed_kmph (the same
+        # single source of truth real_navigate_algo_rrt_star.launch.py
+        # already uses to set TEB's max_vel_x) selects the matching real
+        # preset instead of needing a second, easy-to-desync parameter.
+        target_speed_kmph = self.declare_parameter('target_speed_kmph', 4.0).value
+        self.slow_speed_preset = target_speed_kmph <= 3.0
+        self.get_logger().info(
+            f'target_speed_kmph={target_speed_kmph} -> yellow='
+            f'{self.slow_speed_preset} ({"2" if self.slow_speed_preset else "4"} km/h preset)'
+        )
+
         self.steering_pub = self.create_publisher(Float32, '/steering_angle', 1)
         self.red_pub = self.create_publisher(Bool, '/final_red_detected', 1)
         self.yellow_pub = self.create_publisher(Bool, '/final_yellow_detected', 1)
@@ -80,6 +106,19 @@ class SteeringUartBridge(Node):
         self.current_speed = 0.0
         self.last_feedback_time = self.get_clock().now()
 
+        # Target distance for the command text - distance from current
+        # odom position to the current plan's final waypoint (the
+        # immediate target carrot_path_publisher/the global planner is
+        # steering toward), same "Target: Xm" field the sim-side
+        # speed_governor.py shows via its own /steering_telemetry marker.
+        # None (shown as "n/a") until both a plan and odom have arrived at
+        # least once.
+        self.latest_odom = None
+        self.latest_plan = None
+        odom_topic = self.declare_parameter('odom_topic', '/odom').value
+        self.create_subscription(Odometry, odom_topic, self.odom_callback, 1)
+        self.create_subscription(Path, '/plan', self.plan_callback, 1)
+
         self.create_subscription(Twist, cmd_vel_topic, self.cmd_vel_callback, 1)
         self.create_subscription(SteerSpeed, '/wheel_uart', self.wheel_feedback_callback, 1)
 
@@ -92,6 +131,19 @@ class SteeringUartBridge(Node):
         self.current_steering = msg.steering
         self.current_speed = msg.speed
         self.last_feedback_time = self.get_clock().now()
+
+    def odom_callback(self, msg):
+        self.latest_odom = msg
+
+    def plan_callback(self, msg):
+        self.latest_plan = msg
+
+    def _target_distance(self):
+        if self.latest_plan is None or not self.latest_plan.poses or self.latest_odom is None:
+            return None
+        last = self.latest_plan.poses[-1].pose.position
+        cur = self.latest_odom.pose.pose.position
+        return math.hypot(last.x - cur.x, last.y - cur.y)
 
     def _secs_since(self, stamp):
         return (self.get_clock().now() - stamp).nanoseconds / 1e9
@@ -128,7 +180,9 @@ class SteeringUartBridge(Node):
         # than let the real vehicle creep indefinitely at a near-zero crawl.
         stopped = speed_ms < self.min_forward_speed
         self.red_pub.publish(Bool(data=stopped))
-        self.yellow_pub.publish(Bool(data=False))
+        # See target_speed_kmph's own comment above - this is the real
+        # vehicle's speed-preset selection, not a caution indicator.
+        self.yellow_pub.publish(Bool(data=self.slow_speed_preset))
 
         if self.enable_visualization:
             self.visualize_steering(steering_deg, speed_ms * 3.6)
@@ -216,7 +270,12 @@ class SteeringUartBridge(Node):
             feedback_text = f" | Feedback: {self.current_steering:.1f}°, {self.current_speed:.1f} km/h"
         else:
             feedback_text = " | No feedback"
-        text.text = f"Command: {steering_angle:.1f}° | Speed: {speed:.1f} km/h{feedback_text}"
+        dist = self._target_distance()
+        dist_text = f"{dist:.2f}m" if dist is not None else "n/a"
+        text.text = (
+            f"Target: {dist_text} | Command: {steering_angle:.1f}° | "
+            f"Speed: {speed:.1f} km/h{feedback_text}"
+        )
         text.scale.z = 0.3
         text.color.r, text.color.g, text.color.b, text.color.a = 1.0, 1.0, 1.0, 1.0
         marker_array.markers.append(text)

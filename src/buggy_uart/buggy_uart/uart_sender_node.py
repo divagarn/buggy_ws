@@ -91,7 +91,20 @@ class UartSender(Node):
         self.uart.send(self.yellow_detected, self.red_detected, self.degree)
     
     def shutdown(self):
-        """Clean shutdown of the node"""
+        """Clean shutdown of the node - sends one final STOP command
+        (yellow=0, red=1, degree=0) before closing the serial port, so
+        Ctrl+C (or any other shutdown path - both go through here, see
+        main()'s try/finally) leaves the real vehicle explicitly commanded
+        to stop rather than whichever command happened to be in flight
+        last. Without this, killing this node just stops sending anything
+        further - the vehicle keeps acting on its last-received command
+        until/unless the firmware has its own communication-timeout
+        failsafe, which this does not assume."""
+        try:
+            self.get_logger().warn("Sending final STOP command (red=1) before shutdown")
+            self.uart.send(False, True, 0.0)
+        except Exception as e:
+            self.get_logger().error(f"Failed to send final STOP command: {e}")
         self.uart.close()
         self.get_logger().info("UART Sender node shutting down")
 
