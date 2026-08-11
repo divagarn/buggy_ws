@@ -88,10 +88,14 @@ class SteeringUartBridge(Node):
         # preset instead of needing a second, easy-to-desync parameter.
         target_speed_kmph = self.declare_parameter('target_speed_kmph', 4.0).value
         self.slow_speed_preset = target_speed_kmph <= 3.0
+        self.target_speed_ms = target_speed_kmph / 3.6
         self.get_logger().info(
             f'target_speed_kmph={target_speed_kmph} -> yellow='
             f'{self.slow_speed_preset} ({"2" if self.slow_speed_preset else "4"} km/h preset)'
         )
+        self.max_steering_rate_deg_s = self.declare_parameter('max_steering_rate_deg_s', 30.0).value
+        self.latest_steering_deg = 0.0
+        self._last_cmd_time = None
 
         self.steering_pub = self.create_publisher(Float32, '/steering_angle', 1)
         self.red_pub = self.create_publisher(Bool, '/final_red_detected', 1)
@@ -162,16 +166,44 @@ class SteeringUartBridge(Node):
     def cmd_vel_callback(self, msg):
         speed_ms = msg.linear.x
         angular_z = msg.angular.z
+        now = self.get_clock().now()
+        dt = None
+        if self._last_cmd_time is not None:
+            dt = (now - self._last_cmd_time).nanoseconds / 1e9
+        self._last_cmd_time = now
 
         if abs(speed_ms) < 1e-3:
             steering_deg = 0.0
         else:
             # Inverse of sim_actuation_bridge.py's
-            # angular_z = -tan(steering_rad) * speed_ms / wheelbase
-            steering_rad = math.atan2(-angular_z * self.wheelbase, speed_ms)
+            # angular_z = -tan(steering_rad) * speed_ms / wheelbase - solved
+            # for target_speed_ms (the real vehicle's fixed ACTUAL speed),
+            # NOT speed_ms (TEB's own transient commanded speed). TEB
+            # regularly commands a small linear.x while cornering (its own
+            # free-speed optimization slowing for the turn); with that
+            # small value in atan2's denominator, an ordinary bend recovers
+            # as a near-maximum steering angle (confirmed live in sim:
+            # ~20deg for slight turns). The real vehicle only ever actually
+            # moves at target_speed_ms, so that is the speed the angle must
+            # be solved for - same fix as speed_governor.py (sim), see
+            # that file's docstring for the full derivation/verification.
+            steering_rad = math.atan2(-angular_z * self.wheelbase, self.target_speed_ms)
             steering_deg = math.degrees(steering_rad)
 
         steering_deg = max(-self.max_steering_deg, min(self.max_steering_deg, steering_deg))
+
+        # Slew-rate limit: cap how many degrees this can change by since
+        # the last cycle - a legitimate sharp curvature change (new carrot
+        # point, a replan) ramps in instead of jumping instantly, since no
+        # real steering actuator can snap either. Same fix as
+        # speed_governor.py's own slew limiter.
+        if dt is not None and dt > 0.0:
+            max_delta = self.max_steering_rate_deg_s * dt
+            steering_deg = max(
+                self.latest_steering_deg - max_delta,
+                min(self.latest_steering_deg + max_delta, steering_deg))
+        self.latest_steering_deg = steering_deg
+
         self.steering_pub.publish(Float32(data=steering_deg))
 
         # red_detected=True is uart_sender_node's STOP state. DWB commanding

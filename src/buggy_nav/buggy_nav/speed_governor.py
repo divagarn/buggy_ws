@@ -28,6 +28,25 @@ steering_uart_bridge.py uses) and then re-deriving angular.z for the new
 fixed speed keeps the executed curvature matching what TEB actually
 planned, not an accidental side effect of the speed override.
 
+IMPORTANT: the atan2 recovery uses target_speed_ms (this node's fixed
+output speed) as the denominator, NOT msg.linear.x (TEB's own transient
+commanded speed). TEB regularly commands a small linear.x while
+cornering (its own free-speed optimization slowing down for the turn) -
+with that small value in atan2's denominator, a perfectly ordinary bend
+recovers as a near-maximum steering angle (confirmed live: ~20deg
+commands for slight turns). Since the real vehicle only ever actually
+moves at target_speed_ms (never at whatever transient speed TEB
+privately assumed), that is the speed the steering angle must be solved
+for for the recovered curvature to mean anything physically - this also
+matches controller_server's own max_vel_x now being pinned to
+target_speed_ms in this launch, so TEB itself no longer has room to plan
+a freely-variable speed profile to begin with.
+
+Output steering is additionally slew-rate limited (max_steering_rate_deg_s,
+default 30 deg/s) - even a legitimate sharp curvature change (new carrot
+point, a replan) ramps in over successive cycles instead of jumping
+instantly, since no real steering actuator can snap either.
+
 Also publishes a live TEXT_VIEW_FACING telemetry marker above the vehicle
 - target distance (to the current plan's final waypoint), speed, and
 steering angle - the same three-field format ground_segmentation/
@@ -67,9 +86,11 @@ class SpeedGovernor(Node):
         # trying to move" and stop outright - same value/reasoning as
         # steering_uart_bridge.py's min_forward_speed in the old workspace.
         self.min_forward_speed = self.declare_parameter('min_forward_speed', 0.05).value
+        self.max_steering_rate_deg_s = self.declare_parameter('max_steering_rate_deg_s', 30.0).value
 
         self.latest_odom = None
         self.latest_plan = None
+        self._last_cmd_time = None
 
         self.create_subscription(Twist, 'cmd_vel_in', self.cmd_vel_callback, 10)
         self.create_subscription(
@@ -90,7 +111,8 @@ class SpeedGovernor(Node):
 
         self.get_logger().info(
             f'speed_governor initialized (target_speed={self.target_speed_kmph}km/h, '
-            f'max_steering=+-{self.max_steering_deg}deg, wheelbase={self.wheelbase}m, '
+            f'max_steering=+-{self.max_steering_deg}deg, max_steering_rate='
+            f'{self.max_steering_rate_deg_s}deg/s, wheelbase={self.wheelbase}m, '
             f'min_forward_speed={self.min_forward_speed}m/s)'
         )
 
@@ -102,16 +124,35 @@ class SpeedGovernor(Node):
 
     def cmd_vel_callback(self, msg):
         commanded_speed_ms = msg.linear.x
+        now = self.get_clock().now()
+        dt = None
+        if self._last_cmd_time is not None:
+            dt = (now - self._last_cmd_time).nanoseconds / 1e9
+        self._last_cmd_time = now
 
         if abs(commanded_speed_ms) < self.min_forward_speed:
             steering_deg = 0.0
             out_speed_ms = 0.0
         else:
             # Recover the steering angle TEB actually intended, same
-            # formula as steering_uart_bridge.py's cmd_vel_callback.
-            steering_rad = math.atan2(-msg.angular.z * self.wheelbase, commanded_speed_ms)
+            # formula as steering_uart_bridge.py's cmd_vel_callback - but
+            # solved for target_speed_ms (this node's fixed OUTPUT speed),
+            # not TEB's own transient commanded_speed_ms. See this file's
+            # docstring for why using TEB's own speed here blows up the
+            # recovered angle whenever TEB happens to be commanding a
+            # small speed (e.g. while cornering).
+            steering_rad = math.atan2(-msg.angular.z * self.wheelbase, self.target_speed_ms)
             steering_deg = max(
                 -self.max_steering_deg, min(self.max_steering_deg, math.degrees(steering_rad)))
+            # Slew-rate limit: cap how many degrees this can change by
+            # since the last cycle, so a legitimate sharp curvature change
+            # ramps in instead of jumping instantly (no real steering
+            # actuator can snap either).
+            if dt is not None and dt > 0.0:
+                max_delta = self.max_steering_rate_deg_s * dt
+                steering_deg = max(
+                    self.latest_steering_deg - max_delta,
+                    min(self.latest_steering_deg + max_delta, steering_deg))
             # Real hardware never reverses (max_vel_x_backwards: 0.0 is
             # already enforced upstream in teb_controller.yaml) - sign is
             # always forward here regardless of what TEB commanded.

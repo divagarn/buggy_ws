@@ -46,7 +46,7 @@ from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument
 from launch.conditions import IfCondition, UnlessCondition
-from launch.substitutions import LaunchConfiguration
+from launch.substitutions import LaunchConfiguration, PythonExpression
 from launch_ros.actions import Node
 from launch_ros.parameter_descriptions import ParameterValue
 
@@ -117,7 +117,19 @@ def generate_launch_description():
         description='Fixed speed the real buggy actually drives at (2 or 4 km/h are the '
                     'two real presets) - speed_governor forces the sim vehicle to this '
                     'exact speed whenever moving, since the real UART protocol has no '
-                    'speed command at all (steering angle + stop/go flags only).')
+                    'speed command at all (steering angle + stop/go flags only). Also '
+                    'pinned into controller_server\'s own max_vel_x below (previously left '
+                    'at teb_controller.yaml\'s 2.5 m/s default) - without this, TEB plans '
+                    'trajectories assuming it can freely speed up/slow down, including '
+                    'slowing to near-zero for a bend, which is exactly what made '
+                    'speed_governor\'s atan2-recovered steering angle spike on ordinary '
+                    'turns (small commanded speed in the denominator).')
+    max_steering_rate_deg_s_arg = DeclareLaunchArgument(
+        'max_steering_rate_deg_s', default_value='30.0',
+        description='Slew-rate limit on speed_governor\'s output steering angle - caps how '
+                    'many degrees/sec it is allowed to change by, so even a legitimate sharp '
+                    'curvature change (new carrot point, replan) ramps in instead of jumping '
+                    'instantly. A real steering actuator cannot snap either.')
 
     carrot_distance = ParameterValue(LaunchConfiguration('carrot_distance'), value_type=float)
     scan_distance = ParameterValue(LaunchConfiguration('scan_distance'), value_type=float)
@@ -134,13 +146,21 @@ def generate_launch_description():
     use_lane_following = ParameterValue(LaunchConfiguration('use_lane_following'), value_type=bool)
     lane_simplify_epsilon = ParameterValue(LaunchConfiguration('lane_simplify_epsilon'), value_type=float)
     auto_return_to_start = ParameterValue(LaunchConfiguration('auto_return_to_start'), value_type=bool)
+    target_speed_ms = PythonExpression([LaunchConfiguration('target_speed_kmph'), ' / 3.6'])
 
     controller_server = Node(
         package='nav2_controller',
         executable='controller_server',
         name='controller_server',
         output='screen',
-        parameters=[costmap_params, teb_params, {'use_sim_time': True}],
+        parameters=[costmap_params, teb_params, {
+            # Pinned to the same fixed speed speed_governor forces
+            # downstream - see target_speed_kmph_arg's own comment above
+            # for why (stops TEB from planning a freely-variable speed
+            # profile that has no real-hardware equivalent).
+            'max_vel_x': ParameterValue(target_speed_ms, value_type=float),
+            'use_sim_time': True,
+        }],
         remappings=[
             # NOT the final Gazebo topic anymore - speed_governor sits in
             # between and republishes the actual driven command onto
@@ -161,6 +181,7 @@ def generate_launch_description():
             'target_speed_kmph': LaunchConfiguration('target_speed_kmph'),
             'wheelbase': 1.6,
             'max_steering_deg': 20.0,
+            'max_steering_rate_deg_s': LaunchConfiguration('max_steering_rate_deg_s'),
             'use_sim_time': True,
         }],
         remappings=[
@@ -275,6 +296,7 @@ def generate_launch_description():
         lane_simplify_epsilon_arg,
         auto_return_to_start_arg,
         target_speed_kmph_arg,
+        max_steering_rate_deg_s_arg,
         controller_server,
         speed_governor,
         planner_server,

@@ -143,6 +143,12 @@ def generate_launch_description():
                     'overrides teb_controller.yaml\'s max_vel_x so TEB\'s own steering-angle '
                     'optimization is computed assuming that same real speed - see this '
                     'file\'s own docstring for the full explanation.')
+    max_steering_rate_deg_s_arg = DeclareLaunchArgument(
+        'max_steering_rate_deg_s', default_value='30.0',
+        description='Slew-rate limit on steering_uart_bridge\'s output steering angle - caps '
+                    'how many degrees/sec it is allowed to change by, so even a legitimate '
+                    'sharp curvature change (new carrot point, replan) ramps in instead of '
+                    'jumping instantly. Same fix/param as the sim launch\'s speed_governor.')
     waypoint_step_m_arg = DeclareLaunchArgument('waypoint_step_m', default_value='1.5')
     max_waypoint_steps_arg = DeclareLaunchArgument('max_waypoint_steps', default_value='50')
     goal_xy_tolerance_arg = DeclareLaunchArgument('goal_xy_tolerance', default_value='0.5')
@@ -281,6 +287,7 @@ def generate_launch_description():
             # steering_uart_bridge.py's own comment: yellow is NOT a
             # caution indicator, it's the real vehicle's speed selector).
             'target_speed_kmph': LaunchConfiguration('target_speed_kmph'),
+            'max_steering_rate_deg_s': LaunchConfiguration('max_steering_rate_deg_s'),
             'use_sim_time': False,
         }],
     )
@@ -312,6 +319,7 @@ def generate_launch_description():
         pose_graph_weight_arg,
         pose_graph_max_influence_arg,
         target_speed_kmph_arg,
+        max_steering_rate_deg_s_arg,
         waypoint_step_m_arg,
         max_waypoint_steps_arg,
         goal_xy_tolerance_arg,
