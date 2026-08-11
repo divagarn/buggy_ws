@@ -165,3 +165,21 @@ wheelbase is not covered — /odom is dead-reckoned from this same feedback usin
 Verified: built, syntax-checked, and ran all three modes end-to-end against a simulated buggy over a virtual serial link (a fake actuator with a real 25°/s steering rate and a 2s ramp-delay before speed rises). Confirmed correct output: sweep table accurate to ~1°, slew-rate measured ~24.1 (true value 25, after I fixed an initial measurement bug — first pass excluded the settle-confirmation dwell time and undercounted at 18.8), speed presets correctly separated 2 vs 4 km/h, and the JSON report writes correctly. Not run against real hardware.
 
 Once you run it on the real vehicle, the summary block tells you exactly which numbers to paste into teb_controller.yaml (max_vel_x... no, that one's fine, I mean the steering/speed ones), speed_governor.py, and steering_uart_bridge.py's defaults.
+
+
+
+Added and verified. Command to run:
+
+
+python3 src/buggy_uart/scripts/real_param_calibration.py /dev/ttyUSB0 --live \
+  --sweep --sweep-min -20 --sweep-max 20 --sweep-step 10 --hold-sec 12 --sample-frac 0.75 \
+  --slew --slew-from -15 --slew-to 15 --slew-timeout 15 \
+  --go --go-speed-kmph 2.0 \
+  --report-out calibration_result3.json
+Important — this drives the vehicle the whole time, and steering will keep changing while it drives, so it's not a straight-line path anymore — needs open clear space in every direction the wheels might point during the sweep, not just ahead. --go-speed-kmph 2.0 keeps it at the slower preset deliberately. It gets its own extra confirmation prompt on top of the sweep/slew ones, warning specifically about this.
+
+Compare the resulting sweep table and slew-rate to calibration_result2.json:
+
+If the actual angles now track much closer to commanded (reaching closer to ±20°) and the slew-rate is meaningfully higher than 1.76°/s, that confirms red=1/STOP was limiting steering authority.
+If it looks about the same as the STOP-state run, the resistance is happening regardless of GO/STOP — points elsewhere (worth revisiting).
+Send me the resulting JSON when you've run it.

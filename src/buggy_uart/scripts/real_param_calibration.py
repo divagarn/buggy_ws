@@ -147,11 +147,22 @@ def confirm(prompt):
     return input(prompt).strip().lower() == 'yes'
 
 
-def run_sweep(ser, reader, live, sweep_min, sweep_max, sweep_step, hold_sec, sample_frac):
+def run_sweep(ser, reader, live, sweep_min, sweep_max, sweep_step, hold_sec, sample_frac,
+              go=False, go_speed_kmph=2.0):
     print("\n=== STEERING SWEEP ===")
+    red_state = not go
+    yellow_state = go_speed_kmph <= 3.0
     print(f"Commanding {sweep_min:+.0f}deg to {sweep_max:+.0f}deg in {sweep_step:.0f}deg steps, "
-          f"holding {hold_sec:.1f}s each (red=1/STOP throughout - drive motor never commanded).")
-    if live and not confirm("This will physically move the steering actuator. Type 'yes' to proceed: "):
+          f"holding {hold_sec:.1f}s each "
+          f"({'red=0/GO at ' + str(go_speed_kmph) + 'kmph - VEHICLE WILL DRIVE FORWARD while turning' if go else 'red=1/STOP throughout - drive motor never commanded'}).")
+    if go:
+        if live and not confirm(
+                "--go given: this test WILL DRIVE THE VEHICLE FORWARD while steering sweeps - "
+                "confirm a clear, open (not just straight) area, someone ready to stop it, and "
+                "type 'yes' to proceed live: "):
+            print("Not confirmed - skipping sweep.")
+            return []
+    elif live and not confirm("This will physically move the steering actuator. Type 'yes' to proceed: "):
         print("Not confirmed - skipping sweep.")
         return []
 
@@ -163,7 +174,7 @@ def run_sweep(ser, reader, live, sweep_min, sweep_max, sweep_step, hold_sec, sam
 
     table = []
     for cmd_deg in angles:
-        message = build_send_packet(yellow=False, red=True, degree=cmd_deg)
+        message = build_send_packet(yellow=yellow_state, red=red_state, degree=cmd_deg)
         t_start = time.time()
         samples = []
         while time.time() - t_start < hold_sec:
@@ -190,15 +201,26 @@ def run_sweep(ser, reader, live, sweep_min, sweep_max, sweep_step, hold_sec, sam
     return table
 
 
-def run_slew(ser, reader, live, step_from, step_to, settle_tol, settle_window, timeout):
+def run_slew(ser, reader, live, step_from, step_to, settle_tol, settle_window, timeout,
+             go=False, go_speed_kmph=2.0):
     print("\n=== STEERING SLEW-RATE ===")
+    red_state = not go
+    yellow_state = go_speed_kmph <= 3.0
     print(f"Settling at {step_from:+.0f}deg, then stepping abruptly to {step_to:+.0f}deg and "
-          f"timing the feedback ramp (red=1/STOP throughout).")
-    if live and not confirm("This will physically move the steering actuator. Type 'yes' to proceed: "):
+          f"timing the feedback ramp "
+          f"({'red=0/GO at ' + str(go_speed_kmph) + 'kmph - VEHICLE WILL DRIVE FORWARD while turning' if go else 'red=1/STOP throughout'}).")
+    if go:
+        if live and not confirm(
+                "--go given: this test WILL DRIVE THE VEHICLE FORWARD while steering steps - "
+                "confirm a clear, open (not just straight) area, someone ready to stop it, and "
+                "type 'yes' to proceed live: "):
+            print("Not confirmed - skipping slew-rate test.")
+            return None
+    elif live and not confirm("This will physically move the steering actuator. Type 'yes' to proceed: "):
         print("Not confirmed - skipping slew-rate test.")
         return None
 
-    settle_msg = build_send_packet(yellow=False, red=True, degree=step_from)
+    settle_msg = build_send_packet(yellow=yellow_state, red=red_state, degree=step_from)
     t0 = time.time()
     while time.time() - t0 < 3.0:
         if live:
@@ -208,7 +230,7 @@ def run_slew(ser, reader, live, step_from, step_to, settle_tol, settle_window, t
         time.sleep(0.05)
     print(f"  settled at {step_from:+.0f}deg, stepping now...")
 
-    step_msg = build_send_packet(yellow=False, red=True, degree=step_to)
+    step_msg = build_send_packet(yellow=yellow_state, red=red_state, degree=step_to)
     trace = []
     t_step = time.time()
     last_change_time = t_step
@@ -289,7 +311,7 @@ def run_speed(ser, reader, live, duration, ramp_skip, presets):
         if live_speed:
             ser.write(stop_msg)
             ser.flush()
-        print("    STOP sent, settling 1.5s before next preset...")
+        print("    STOP sent, settling 1.5s...")
         t0 = time.time()
         while time.time() - t0 < 1.5:
             reader.poll()
@@ -345,6 +367,18 @@ def main():
                               'has its own typed confirmation). Without this, every test runs '
                               'as a dry-run (nothing written, no feedback expected).')
 
+    parser.add_argument('--go', action='store_true',
+                         help='--sweep/--slew only: send red=0 (GO) instead of red=1 (STOP) - '
+                              'tests whether the steering actuator has more authority while '
+                              'the vehicle is actually driving (real-hardware finding: it '
+                              'undershoots and slows down toward the extremes under STOP). '
+                              'VEHICLE WILL DRIVE FORWARD the whole time - needs open, not just '
+                              'straight, clear space (steering keeps changing while it drives), '
+                              'and gets its own extra confirmation prompt.')
+    parser.add_argument('--go-speed-kmph', type=float, choices=[2.0, 4.0], default=2.0,
+                         help='--go only: which speed preset to drive at during the test '
+                              '(default 2.0 - the slower one, deliberately)')
+
     parser.add_argument('--sweep', action='store_true', help='Run the steering sweep test.')
     parser.add_argument('--sweep-min', type=float, default=-20.0)
     parser.add_argument('--sweep-max', type=float, default=20.0)
@@ -366,6 +400,10 @@ def main():
 
     parser.add_argument('--speed', action='store_true',
                          help='Run the speed preset test (COMMANDS GO - drives the vehicle).')
+    parser.add_argument('--speed-kmph', type=float, choices=[2.0, 4.0], default=None,
+                         help='--speed only: test just ONE preset (2 or 4) instead of both '
+                              'back-to-back - halves the required clear travel space. Default '
+                              '(omitted): run both presets in sequence.')
     parser.add_argument('--speed-duration', type=float, default=10.0)
     parser.add_argument('--speed-ramp-skip', type=float, default=4.0,
                          help='Seconds to skip at the start of each preset before treating '
@@ -395,15 +433,21 @@ def main():
         if args.sweep:
             sweep_table = run_sweep(
                 ser, reader, args.live, args.sweep_min, args.sweep_max, args.sweep_step,
-                args.hold_sec, args.sample_frac)
+                args.hold_sec, args.sample_frac, go=args.go, go_speed_kmph=args.go_speed_kmph)
         if args.slew:
             slew_rate = run_slew(
                 ser, reader, args.live, args.slew_from, args.slew_to,
-                args.slew_settle_tol, args.slew_settle_window, args.slew_timeout)
+                args.slew_settle_tol, args.slew_settle_window, args.slew_timeout,
+                go=args.go, go_speed_kmph=args.go_speed_kmph)
         if args.speed:
+            all_presets = [('2kmph_preset', True), ('4kmph_preset', False)]
+            if args.speed_kmph is not None:
+                selected = [p for p in all_presets if p[0].startswith(f'{args.speed_kmph:.0f}kmph')]
+            else:
+                selected = all_presets
             speed_results = run_speed(
                 ser, reader, args.live, args.speed_duration, args.speed_ramp_skip,
-                presets=[('2kmph_preset', True), ('4kmph_preset', False)])
+                presets=selected)
     except KeyboardInterrupt:
         print("\nInterrupted.")
     finally:

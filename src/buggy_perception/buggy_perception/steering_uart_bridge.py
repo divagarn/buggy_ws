@@ -26,17 +26,22 @@ Twist synthesis, so the sign convention it already validates (SteerSpeed
 positive degrees = right vs ROS Twist positive angular.z = left) is
 preserved rather than re-derived and possibly getting the sign backwards.
 
-Hard-clamps to the vehicle's actual physical steering limit (+-20deg,
-buggy.urdf.xacro's max_steer_rad = 0.349066 = 20deg). DWB only caps
-angular.z (wz), not the resulting steering angle directly, so at low
-forward speed a modest wz implies an enormous angle
-(atan(wheelbase * wz / speed) blows up as speed -> 0) - confirmed ~40deg
-commands during simulation testing at low speed, and it would go higher
-still (measured up to ~86deg at DWB's min_vel_x with wz near its cap).
-Gazebo's URDF joint limits silently clamp this in simulation, but
-uart_sender_node.py (real hardware) has no clamping at all and would
-forward whatever it's given straight to the actuator - this clamp is
-what stands in for that missing hardware-side safety limit.
+Steering angle is computed DIRECTLY from geometry (current pose from
+odom_topic + the active plan on /plan - the same path
+carrot_path_publisher already produces), via pure_pursuit.py's
+compute_steering_for_path(), NOT recovered from the controller's Twist
+anymore. The old approach - atan2(wheelbase * angular_z, speed) - had a
+real bug: at low forward speed a modest angular_z implies an enormous
+angle (atan blows up as speed -> 0), confirmed ~40-86deg commands during
+low-speed testing even after solving for target_speed_ms instead of the
+controller's own transient speed. Pure pursuit's pose+path geometry
+never involves a speed term at all, so that failure mode doesn't exist
+here - verified standalone (buggy_nav/pure_pursuit.py + its own test)
+before being wired in. Still hard-clamped to the vehicle's actual
+physical steering limit (+-20deg, buggy.urdf.xacro's max_steer_rad =
+0.349066 = 20deg) regardless, since uart_sender_node.py (real hardware)
+has no clamping of its own and would forward whatever it's given
+straight to the actuator.
 
 Also replicates the old reactive pipeline's steering markers
 (ground_segmentation/steering_calculator_node.py), same geometry/colors/
@@ -61,6 +66,8 @@ from nav_msgs.msg import Odometry, Path
 from std_msgs.msg import Float32, Bool
 from visualization_msgs.msg import Marker, MarkerArray
 from ground_segmentation_msgs.msg import SteerSpeed
+
+from buggy_perception.pure_pursuit import compute_steering_for_path
 
 
 class SteeringUartBridge(Node):
@@ -94,6 +101,9 @@ class SteeringUartBridge(Node):
             f'{self.slow_speed_preset} ({"2" if self.slow_speed_preset else "4"} km/h preset)'
         )
         self.max_steering_rate_deg_s = self.declare_parameter('max_steering_rate_deg_s', 30.0).value
+        # Same meaning/default as speed_governor.py's own lookahead_distance
+        # (sim) - see pure_pursuit.py's docstring.
+        self.lookahead_distance = self.declare_parameter('lookahead_distance', 4.0).value
         self.latest_steering_deg = 0.0
         self._last_cmd_time = None
 
@@ -149,6 +159,26 @@ class SteeringUartBridge(Node):
         cur = self.latest_odom.pose.pose.position
         return math.hypot(last.x - cur.x, last.y - cur.y)
 
+    def _yaw_from_quaternion(self, q):
+        # Same formula/convention as carrot_path_publisher.py's own helper.
+        siny_cosp = 2.0 * (q.w * q.z + q.x * q.y)
+        cosy_cosp = 1.0 - 2.0 * (q.y * q.y + q.z * q.z)
+        return math.atan2(siny_cosp, cosy_cosp)
+
+    def _pure_pursuit_steering_deg(self):
+        """Current pose + /plan -> steering angle, geometrically - see
+        this file's docstring. Returns None if odom/plan aren't available
+        yet or the plan is empty."""
+        if self.latest_odom is None or self.latest_plan is None or not self.latest_plan.poses:
+            return None
+        pose = self.latest_odom.pose.pose
+        yaw = self._yaw_from_quaternion(pose.orientation)
+        path = [(p.pose.position.x, p.pose.position.y) for p in self.latest_plan.poses]
+        result = compute_steering_for_path(
+            pose.position.x, pose.position.y, yaw, path,
+            self.wheelbase, self.max_steering_deg, self.lookahead_distance)
+        return result['steering_deg']
+
     def _secs_since(self, stamp):
         return (self.get_clock().now() - stamp).nanoseconds / 1e9
 
@@ -165,7 +195,6 @@ class SteeringUartBridge(Node):
 
     def cmd_vel_callback(self, msg):
         speed_ms = msg.linear.x
-        angular_z = msg.angular.z
         now = self.get_clock().now()
         dt = None
         if self._last_cmd_time is not None:
@@ -175,20 +204,13 @@ class SteeringUartBridge(Node):
         if abs(speed_ms) < 1e-3:
             steering_deg = 0.0
         else:
-            # Inverse of sim_actuation_bridge.py's
-            # angular_z = -tan(steering_rad) * speed_ms / wheelbase - solved
-            # for target_speed_ms (the real vehicle's fixed ACTUAL speed),
-            # NOT speed_ms (TEB's own transient commanded speed). TEB
-            # regularly commands a small linear.x while cornering (its own
-            # free-speed optimization slowing for the turn); with that
-            # small value in atan2's denominator, an ordinary bend recovers
-            # as a near-maximum steering angle (confirmed live in sim:
-            # ~20deg for slight turns). The real vehicle only ever actually
-            # moves at target_speed_ms, so that is the speed the angle must
-            # be solved for - same fix as speed_governor.py (sim), see
-            # that file's docstring for the full derivation/verification.
-            steering_rad = math.atan2(-angular_z * self.wheelbase, self.target_speed_ms)
-            steering_deg = math.degrees(steering_rad)
+            # Steering comes directly from geometry (pose + /plan), not
+            # recovered from the Twist's angular_z - see this file's
+            # docstring for why (the old atan2 approach could blow up at
+            # low commanded speed even after solving for target_speed_ms).
+            steering_deg = self._pure_pursuit_steering_deg()
+            if steering_deg is None:
+                steering_deg = 0.0
 
         steering_deg = max(-self.max_steering_deg, min(self.max_steering_deg, steering_deg))
 

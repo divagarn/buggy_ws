@@ -18,31 +18,35 @@ target_speed_ms when TEB commands any meaningful forward motion, exactly
 threshold and reasoning as steering_uart_bridge.py's final_red_detected
 in the old workspace).
 
-Steering is NOT simply passed through unchanged, either: TEB computed its
-angular.z assuming ITS OWN chosen speed, not the fixed speed this node
-then substitutes. Overwriting linear.x alone while keeping the old
-angular.z would silently change the actual curvature Gazebo executes
-(same angular.z at a different linear.x is a different turning radius).
-Recovering the intended STEERING ANGLE first (same atan2 formula
-steering_uart_bridge.py uses) and then re-deriving angular.z for the new
-fixed speed keeps the executed curvature matching what TEB actually
-planned, not an accidental side effect of the speed override.
+Steering angle is NOT recovered from TEB's Twist at all anymore (the old
+atan2(angular_z*wheelbase, speed) approach - see git history / this
+file's own docstring before this change for why that was ever needed).
+That approach required knowing which SPEED TEB's angular.z was computed
+for, and got it wrong in practice: TEB regularly commands a small
+linear.x while cornering (its own free-speed optimization slowing for
+the turn), and with that small value in atan2's denominator, a perfectly
+ordinary bend recovered as a near-maximum steering angle (confirmed
+live: ~20deg commands for slight turns). Using target_speed_ms instead
+of TEB's own transient speed fixed the worst of it, but the whole
+approach was solving a problem (recovering a steering angle from a
+velocity command) that pure_pursuit.py's geometry avoids needing to ask
+in the first place.
 
-IMPORTANT: the atan2 recovery uses target_speed_ms (this node's fixed
-output speed) as the denominator, NOT msg.linear.x (TEB's own transient
-commanded speed). TEB regularly commands a small linear.x while
-cornering (its own free-speed optimization slowing down for the turn) -
-with that small value in atan2's denominator, a perfectly ordinary bend
-recovers as a near-maximum steering angle (confirmed live: ~20deg
-commands for slight turns). Since the real vehicle only ever actually
-moves at target_speed_ms (never at whatever transient speed TEB
-privately assumed), that is the speed the steering angle must be solved
-for for the recovered curvature to mean anything physically - this also
-matches controller_server's own max_vel_x now being pinned to
-target_speed_ms in this launch, so TEB itself no longer has room to plan
-a freely-variable speed profile to begin with.
+Instead: steering angle is computed DIRECTLY from geometry - current
+pose (from odom_topic) + the active plan (/plan, the same path
+carrot_path_publisher already produces) - using pure_pursuit.py's
+compute_steering_for_path(). It picks a lookahead point on the path and
+solves the bicycle-model curvature to reach it. No speed value is
+involved in that calculation at all, so there is no "which speed"
+ambiguity to get wrong - verified standalone (buggy_nav/pure_pursuit.py
++ its own test) before being wired in here.
 
-Output steering is additionally slew-rate limited (max_steering_rate_deg_s,
+TEB/controller_server still runs and still decides WHETHER to move
+(commanded_speed_ms below min_forward_speed means TEB found no safe
+trajectory / goal reached -> stop) - only the STEERING VALUE itself no
+longer comes from TEB's Twist.
+
+Output steering is still slew-rate limited (max_steering_rate_deg_s,
 default 30 deg/s) - even a legitimate sharp curvature change (new carrot
 point, a replan) ramps in over successive cycles instead of jumping
 instantly, since no real steering actuator can snap either.
@@ -69,6 +73,8 @@ from geometry_msgs.msg import Twist
 from nav_msgs.msg import Odometry, Path
 from visualization_msgs.msg import Marker
 
+from buggy_nav.pure_pursuit import compute_steering_for_path
+
 
 class SpeedGovernor(Node):
 
@@ -87,6 +93,13 @@ class SpeedGovernor(Node):
         # steering_uart_bridge.py's min_forward_speed in the old workspace.
         self.min_forward_speed = self.declare_parameter('min_forward_speed', 0.05).value
         self.max_steering_rate_deg_s = self.declare_parameter('max_steering_rate_deg_s', 30.0).value
+        # How far ahead along /plan to look for the pure-pursuit target
+        # point. Shorter = tighter path tracking but jerkier, longer =
+        # smoother but cuts corners more - independent of
+        # carrot_path_publisher's own carrot_distance (that's how far
+        # ahead it PICKS a new goal/candidate, this is how far ahead THIS
+        # node looks along the resulting path for steering purposes).
+        self.lookahead_distance = self.declare_parameter('lookahead_distance', 4.0).value
 
         self.latest_odom = None
         self.latest_plan = None
@@ -122,6 +135,27 @@ class SpeedGovernor(Node):
     def plan_callback(self, msg):
         self.latest_plan = msg
 
+    def _yaw_from_quaternion(self, q):
+        # Same formula/convention as carrot_path_publisher.py's own helper.
+        siny_cosp = 2.0 * (q.w * q.z + q.x * q.y)
+        cosy_cosp = 1.0 - 2.0 * (q.y * q.y + q.z * q.z)
+        return math.atan2(siny_cosp, cosy_cosp)
+
+    def _pure_pursuit_steering_deg(self):
+        """Current pose + /plan -> steering angle, geometrically (see this
+        file's docstring). Returns None if odom/plan aren't available yet
+        or the plan is empty - caller falls back to 0.0 (safe default,
+        same as the old TEB-Twist-unavailable case)."""
+        if self.latest_odom is None or self.latest_plan is None or not self.latest_plan.poses:
+            return None
+        pose = self.latest_odom.pose.pose
+        yaw = self._yaw_from_quaternion(pose.orientation)
+        path = [(p.pose.position.x, p.pose.position.y) for p in self.latest_plan.poses]
+        result = compute_steering_for_path(
+            pose.position.x, pose.position.y, yaw, path,
+            self.wheelbase, self.max_steering_deg, self.lookahead_distance)
+        return result['steering_deg']
+
     def cmd_vel_callback(self, msg):
         commanded_speed_ms = msg.linear.x
         now = self.get_clock().now()
@@ -134,16 +168,11 @@ class SpeedGovernor(Node):
             steering_deg = 0.0
             out_speed_ms = 0.0
         else:
-            # Recover the steering angle TEB actually intended, same
-            # formula as steering_uart_bridge.py's cmd_vel_callback - but
-            # solved for target_speed_ms (this node's fixed OUTPUT speed),
-            # not TEB's own transient commanded_speed_ms. See this file's
-            # docstring for why using TEB's own speed here blows up the
-            # recovered angle whenever TEB happens to be commanding a
-            # small speed (e.g. while cornering).
-            steering_rad = math.atan2(-msg.angular.z * self.wheelbase, self.target_speed_ms)
-            steering_deg = max(
-                -self.max_steering_deg, min(self.max_steering_deg, math.degrees(steering_rad)))
+            # Steering comes directly from geometry (pose + /plan), not
+            # from TEB's Twist - see this file's docstring for why.
+            steering_deg = self._pure_pursuit_steering_deg()
+            if steering_deg is None:
+                steering_deg = 0.0
             # Slew-rate limit: cap how many degrees this can change by
             # since the last cycle, so a legitimate sharp curvature change
             # ramps in instead of jumping instantly (no real steering

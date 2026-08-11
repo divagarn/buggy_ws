@@ -130,6 +130,12 @@ def generate_launch_description():
                     'many degrees/sec it is allowed to change by, so even a legitimate sharp '
                     'curvature change (new carrot point, replan) ramps in instead of jumping '
                     'instantly. A real steering actuator cannot snap either.')
+    lookahead_distance_arg = DeclareLaunchArgument(
+        'lookahead_distance', default_value='4.0',
+        description='How far ahead along /plan speed_governor looks for its pure-pursuit '
+                    'steering target. Shorter = tighter path tracking but jerkier, longer = '
+                    'smoother but cuts corners more - independent of carrot_distance (how far '
+                    'ahead the PATH ITSELF is planned to).')
 
     carrot_distance = ParameterValue(LaunchConfiguration('carrot_distance'), value_type=float)
     scan_distance = ParameterValue(LaunchConfiguration('scan_distance'), value_type=float)
@@ -182,6 +188,7 @@ def generate_launch_description():
             'wheelbase': 1.6,
             'max_steering_deg': 20.0,
             'max_steering_rate_deg_s': LaunchConfiguration('max_steering_rate_deg_s'),
+            'lookahead_distance': LaunchConfiguration('lookahead_distance'),
             'use_sim_time': True,
         }],
         remappings=[
@@ -297,6 +304,7 @@ def generate_launch_description():
         auto_return_to_start_arg,
         target_speed_kmph_arg,
         max_steering_rate_deg_s_arg,
+        lookahead_distance_arg,
         controller_server,
         speed_governor,
         planner_server,
