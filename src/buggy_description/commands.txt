@@ -137,3 +137,31 @@ If you're doing 2D mapping, drive the full loop before saving (ros2 service call
 
 
 python3 /home/divagar/buggy_ros2/divagar_test1_ws/src/buggy_uart/scripts/check_uart.py /dev/ttyUSB0 --speed-test --speed-cap 5 --duration 10 --live
+
+
+
+
+New file: real_param_calibration.py — standalone (no ROS needed), registered in setup.py alongside the other UART scripts.
+
+Three tests:
+
+
+# Safe, steering-only (never commands GO) - dry run first
+python3 src/buggy_uart/scripts/real_param_calibration.py /dev/ttyUSB0 --sweep --slew
+
+# Once that looks right, go live (each test asks its own typed confirmation)
+python3 src/buggy_uart/scripts/real_param_calibration.py /dev/ttyUSB0 --sweep --slew --live
+
+# Speed test actually drives the vehicle - separate, more careful confirmation
+python3 src/buggy_uart/scripts/real_param_calibration.py /dev/ttyUSB0 --speed --live
+
+# Run everything and save a machine-readable report
+python3 src/buggy_uart/scripts/real_param_calibration.py /dev/ttyUSB0 \
+  --sweep --slew --speed --live --report-out calibration_result.json
+--sweep: commands a range of angles, reads settled feedback, gives you a commanded-vs-actual table + true saturation point.
+--slew: one abrupt step, times the feedback ramp → real deg/s for max_steering_rate_deg_s.
+--speed: GO at each preset, skips the ramp-up, reports actual steady-state km/h.
+wheelbase is not covered — /odom is dead-reckoned from this same feedback using the wheelbase value you'd be trying to verify, so using it would be circular. Flagged clearly in the summary output; needs an independent ground truth (GPS trace or a paced-out turn radius) if you want that calibrated too.
+Verified: built, syntax-checked, and ran all three modes end-to-end against a simulated buggy over a virtual serial link (a fake actuator with a real 25°/s steering rate and a 2s ramp-delay before speed rises). Confirmed correct output: sweep table accurate to ~1°, slew-rate measured ~24.1 (true value 25, after I fixed an initial measurement bug — first pass excluded the settle-confirmation dwell time and undercounted at 18.8), speed presets correctly separated 2 vs 4 km/h, and the JSON report writes correctly. Not run against real hardware.
+
+Once you run it on the real vehicle, the summary block tells you exactly which numbers to paste into teb_controller.yaml (max_vel_x... no, that one's fine, I mean the steering/speed ones), speed_governor.py, and steering_uart_bridge.py's defaults.

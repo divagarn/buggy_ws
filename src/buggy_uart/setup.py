@@ -18,7 +18,11 @@ setup(
     description='UART communication nodes for the real buggy',
     license='Apache-2.0',
     tests_require=['pytest'],
-    scripts=['scripts/check_uart.py', 'scripts/speed_preset_test.py'],
+    scripts=[
+        'scripts/check_uart.py',
+        'scripts/speed_preset_test.py',
+        'scripts/real_param_calibration.py',
+    ],
     entry_points={
         'console_scripts': [
             'uart_bridge = buggy_uart.uart_bridge:main',
