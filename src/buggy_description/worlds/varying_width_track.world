@@ -1,6 +1,16 @@
 <?xml version="1.0" ?>
 <sdf version="1.7">
   <world name="varying_width_track">
+    <!-- Placeholder geodetic anchor for the GPS sim plugin (buggy.gps_imu.xacro) -
+         (0,0) is fine for exercising the ROS-level GPS pipeline but isn't tied to
+         a real deployment site. Replace with the actual test site's lat/lon once known. -->
+    <spherical_coordinates>
+      <latitude_deg>0</latitude_deg>
+      <longitude_deg>0</longitude_deg>
+      <elevation>0</elevation>
+      <heading_deg>0</heading_deg>
+    </spherical_coordinates>
+
     <include>
       <uri>model://sun</uri>
     </include>

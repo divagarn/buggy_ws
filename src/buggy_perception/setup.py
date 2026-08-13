@@ -1,3 +1,5 @@
+from glob import glob
+
 from setuptools import find_packages, setup
 
 package_name = 'buggy_perception'
@@ -10,6 +12,7 @@ setup(
         ('share/ament_index/resource_index/packages',
             ['resource/' + package_name]),
         ('share/' + package_name, ['package.xml']),
+        ('share/' + package_name + '/config', glob('config/*.yaml')),
     ],
     install_requires=['setuptools'],
     zip_safe=True,
@@ -25,6 +28,7 @@ setup(
             'tf_odom_relay = buggy_perception.tf_odom_relay:main',
             'initialpose_to_slam_toolbox = buggy_perception.initialpose_to_slam_toolbox:main',
             'velodyne_static_tf = buggy_perception.velodyne_static_tf:main',
+            'chcnav_static_tf = buggy_perception.chcnav_static_tf:main',
             'wheel_odometry = buggy_perception.wheel_odometry:main',
             'steering_uart_bridge = buggy_perception.steering_uart_bridge:main',
         ],

@@ -1,0 +1,57 @@
+# robot_localization ekf_node config - stage 1 of GPS/IMU integration
+# (see chcnav package + the plan this was implemented from). Fuses ONLY
+# wheel odometry + IMU into a local odom->base_link estimate; GPS (/fix)
+# is not fused yet - that's stage 2, via a second map-frame EKF +
+# navsat_transform_node, once absolute position correction is wanted.
+#
+# This node becomes the SOLE odom->base_link TF broadcaster. Whichever
+# node used to own that transform (wheel_odometry.py on real hardware,
+# ackermann_steering_controller in sim) must have its own TF publishing
+# disabled - see real_sensors_bringup.launch.py / sensors_bringup.launch.py.
+#
+# use_sim_time is intentionally NOT set here - each launch file appends it
+# separately (True in sim, False on real hardware), same convention as
+# every other params file in this workspace (e.g. slam_toolbox_mapping.yaml).
+ekf_filter_node:
+  ros__parameters:
+    frequency: 30.0
+    two_d_mode: true
+    publish_tf: true
+
+    map_frame: map
+    odom_frame: odom
+    base_link_frame: base_link
+    # Local EKF only (no GPS fusion yet) - world_frame stays odom, not map.
+    # Stage 2 (GPS) would add a second EKF instance with world_frame: map
+    # fed by navsat_transform_node instead of changing this one.
+    world_frame: odom
+
+    # Wheel odometry (real: wheel_odometry.py /odom, sim: ackermann_steering_
+    # controller's own odometry topic - remapped per-launch since ros2_control
+    # namespaces it under the controller name). Position + forward velocity
+    # only - NOT orientation/angular velocity, since wheel-derived yaw is
+    # exactly the drift source this fusion exists to correct.
+    odom0: odom0
+    odom0_config: [true,  true,  false,
+                   false, false, false,
+                   true,  false, false,
+                   false, false, false,
+                   false, false, false]
+    odom0_differential: false
+    odom0_relative: false
+    odom0_queue_size: 10
+
+    # chcnav driver (real: ChcnavFixDemo.cpp UDP, sim: Gazebo's native
+    # libgazebo_ros_imu_sensor.so), both on /imu. Yaw orientation + yaw rate
+    # only - roll/pitch left unfused (planar ground vehicle) and linear
+    # acceleration left unfused (no bias calibration exists yet; integrating
+    # uncalibrated accel would just trade one drift source for another).
+    imu0: /imu
+    imu0_config: [false, false, false,
+                  false, false, true,
+                  false, false, false,
+                  false, false, true,
+                  false, false, false]
+    imu0_differential: false
+    imu0_relative: false
+    imu0_queue_size: 10

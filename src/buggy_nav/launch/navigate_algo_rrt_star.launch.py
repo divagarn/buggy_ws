@@ -189,6 +189,14 @@ def generate_launch_description():
             'max_steering_deg': 20.0,
             'max_steering_rate_deg_s': LaunchConfiguration('max_steering_rate_deg_s'),
             'lookahead_distance': LaunchConfiguration('lookahead_distance'),
+            # EKF's fused output (sensors_bringup.launch.py's ekf_node,
+            # robot_localization, fuses wheel odometry + /imu) - NOT the
+            # raw '/ackermann_steering_controller/odometry' this defaults
+            # to otherwise. Pure-pursuit steering reads this topic
+            # directly (not via TF), so pointing it at the raw odometry
+            # would silently skip the IMU drift correction for steering
+            # even though costmaps/slam_toolbox (TF-based) still benefit.
+            'odom_topic': '/odometry/filtered',
             'use_sim_time': True,
         }],
         remappings=[
@@ -267,6 +275,10 @@ def generate_launch_description():
             'planner_id': 'GridBased',
             'global_planner_name': 'RRTStar',
             'planner_action_name': 'rrt_star_planner/compute_path_to_pose',
+            # Same EKF-fused topic speed_governor uses now - see its own
+            # comment above for why the raw ackermann odometry default
+            # would silently skip the IMU drift correction here too.
+            'odom_topic': '/odometry/filtered',
             'use_global_planner': use_global_planner,
             'costmap_topic': LaunchConfiguration('costmap_topic'),
             'path_safety_check': LaunchConfiguration('path_safety_check'),

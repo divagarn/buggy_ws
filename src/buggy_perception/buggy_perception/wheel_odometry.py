@@ -24,6 +24,15 @@ Dead reckoning only - no correction for wheel slip or drift. Fine for a
 short local-planning horizon (this stack never plans further than
 ~10m ahead), but this is not a substitute for real localization (GPS/IMU
 fusion) if one becomes available later.
+
+IMU fusion IS now available (chcnav driver, see real_gps.launch.py) via a
+robot_localization ekf_node in real_sensors_bringup.launch.py, which fuses
+this node's /odom (position/velocity, NOT its own yaw) with the IMU's gyro
+for yaw and becomes the sole odom->base_link broadcaster. The publish_tf
+param below exists for that reason - real_sensors_bringup.launch.py sets it
+False so this node and the EKF don't both publish the same TF edge. Default
+stays True so this node still works standalone (e.g. for quick bench tests
+without bringing up the whole EKF/IMU stack).
 """
 
 import math
@@ -44,6 +53,7 @@ class WheelOdometry(Node):
         self.wheelbase = self.declare_parameter('wheelbase', 1.6).value
         self.odom_frame = self.declare_parameter('odom_frame', 'odom').value
         self.base_frame = self.declare_parameter('base_frame', 'base_link').value
+        self.publish_tf = self.declare_parameter('publish_tf', True).value
 
         self.x = 0.0
         self.y = 0.0
@@ -55,9 +65,10 @@ class WheelOdometry(Node):
 
         self.create_subscription(SteerSpeed, '/wheel_uart', self.feedback_callback, 10)
 
+        tf_note = f'+ {self.odom_frame}->{self.base_frame} TF' if self.publish_tf else '(TF publishing disabled - expecting another node, e.g. ekf_node, to own it)'
         self.get_logger().info(
             f'Wheel odometry integrator initialized (wheelbase={self.wheelbase}m, '
-            f'dead-reckoning from /wheel_uart -> /odom + {self.odom_frame}->{self.base_frame} TF)'
+            f'dead-reckoning from /wheel_uart -> /odom {tf_note})'
         )
 
     def feedback_callback(self, msg):
@@ -101,15 +112,16 @@ class WheelOdometry(Node):
         odom.twist.twist.angular.z = angular_z
         self.odom_pub.publish(odom)
 
-        tf_msg = TransformStamped()
-        tf_msg.header.stamp = stamp
-        tf_msg.header.frame_id = self.odom_frame
-        tf_msg.child_frame_id = self.base_frame
-        tf_msg.transform.translation.x = self.x
-        tf_msg.transform.translation.y = self.y
-        tf_msg.transform.rotation.z = qz
-        tf_msg.transform.rotation.w = qw
-        self.tf_broadcaster.sendTransform(tf_msg)
+        if self.publish_tf:
+            tf_msg = TransformStamped()
+            tf_msg.header.stamp = stamp
+            tf_msg.header.frame_id = self.odom_frame
+            tf_msg.child_frame_id = self.base_frame
+            tf_msg.transform.translation.x = self.x
+            tf_msg.transform.translation.y = self.y
+            tf_msg.transform.rotation.z = qz
+            tf_msg.transform.rotation.w = qw
+            self.tf_broadcaster.sendTransform(tf_msg)
 
 
 def main(args=None):

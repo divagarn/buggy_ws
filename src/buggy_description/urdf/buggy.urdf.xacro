@@ -4,6 +4,7 @@
   <xacro:include filename="$(find buggy_description)/urdf/materials.xacro"/>
   <xacro:include filename="$(find buggy_description)/urdf/buggy.gazebo.xacro"/>
   <xacro:include filename="$(find buggy_description)/urdf/buggy.velodyne.xacro"/>
+  <xacro:include filename="$(find buggy_description)/urdf/buggy.gps_imu.xacro"/>
 
   <!-- Downward tilt of the LiDAR mount, degrees (positive = nose down).
        Trades ground-blind-spot distance for upward FOV - see the tradeoff

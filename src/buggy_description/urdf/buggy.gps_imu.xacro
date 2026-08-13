@@ -1,0 +1,68 @@
+<?xml version="1.0"?>
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro">
+
+  <!-- Sim counterpart of the real chcnav CGI driver (chcnav package,
+       real_gps.launch.py). Mounted on the gps_mount_link/imu_mount_link
+       placeholders (buggy.urdf.xacro) that were sitting unused until now.
+
+       Publishes on the SAME topic names the real driver's ChcnavFixDemo
+       node publishes (sensor_msgs/NavSatFix on /fix, sensor_msgs/Imu on
+       /imu) so anything built to consume GPS/IMU works identically
+       whether fed by real hardware (UDP) or this Gazebo plugin - no
+       chcnav code runs in sim at all, unlike radar_sim.py's hand-rolled
+       stand-in, because Gazebo Classic DOES ship a native GPS sensor
+       plugin (gazebo_plugins/libgazebo_ros_gps_sensor.so) and a native
+       IMU sensor plugin (libgazebo_ros_imu_sensor.so), so there's no
+       "no native plugin exists" gap here to fill in Python.
+
+       Noise values below are copied as a starting point from ROS2's own
+       gazebo_plugins gazebo_ros_gps_sensor_demo.world - NOT validated
+       against the real chcnav unit's actual accuracy spec. Tune once
+       compared against real hardware logs.
+
+       Absolute lat/lon output depends on each world file's
+       <spherical_coordinates> anchor (see worlds/*.world) - without one,
+       Gazebo defaults to lat=0 lon=0 (Gulf of Guinea), which is fine for
+       exercising the ROS-level pipeline but not for anything geodetic. -->
+
+  <gazebo reference="gps_mount_link">
+    <sensor name="gps_sensor" type="gps">
+      <always_on>true</always_on>
+      <update_rate>10</update_rate>
+      <gps>
+        <position_sensing>
+          <horizontal>
+            <noise type="gaussian">
+              <mean>0.0</mean>
+              <stddev>2e-4</stddev>
+            </noise>
+          </horizontal>
+          <vertical>
+            <noise type="gaussian">
+              <mean>0.0</mean>
+              <stddev>2e-4</stddev>
+            </noise>
+          </vertical>
+        </position_sensing>
+      </gps>
+      <plugin name="gps_plugin" filename="libgazebo_ros_gps_sensor.so">
+        <ros>
+          <remapping>~/out:=/fix</remapping>
+        </ros>
+      </plugin>
+    </sensor>
+  </gazebo>
+
+  <gazebo reference="imu_mount_link">
+    <sensor name="imu_sensor" type="imu">
+      <always_on>true</always_on>
+      <update_rate>50</update_rate>
+      <plugin name="imu_plugin" filename="libgazebo_ros_imu_sensor.so">
+        <ros>
+          <remapping>~/out:=/imu</remapping>
+        </ros>
+      </plugin>
+    </sensor>
+  </gazebo>
+
+</robot>

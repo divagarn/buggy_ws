@@ -261,7 +261,14 @@ def generate_launch_description():
             'planner_id': 'GridBased',
             'global_planner_name': 'RRTStar',
             'planner_action_name': 'rrt_star_planner/compute_path_to_pose',
-            'odom_topic': '/odom',
+            # EKF's fused output (real_sensors_bringup.launch.py's
+            # ekf_node, robot_localization, fuses wheel_odometry's raw
+            # '/odom' + the CHCNAV unit's /imu) - NOT the raw '/odom' this
+            # defaulted to before the EKF existed. This node reads the
+            # topic directly (not via TF), so pointing it at raw odometry
+            # would silently skip the IMU drift correction here even
+            # though costmaps/slam_toolbox (TF-based) still benefit.
+            'odom_topic': '/odometry/filtered',
             'use_global_planner': use_global_planner,
             'costmap_topic': LaunchConfiguration('costmap_topic'),
             'path_safety_check': LaunchConfiguration('path_safety_check'),
@@ -287,7 +294,9 @@ def generate_launch_description():
         output='screen',
         parameters=[{
             'cmd_vel_topic': '/cmd_vel',
-            'odom_topic': '/odom',
+            # EKF's fused output - see carrot_path_publisher's own comment
+            # above for why (raw '/odom' would skip IMU drift correction).
+            'odom_topic': '/odometry/filtered',
             # Same single source of truth TEB's max_vel_x uses - selects
             # the matching real speed preset via the yellow flag (see
             # steering_uart_bridge.py's own comment: yellow is NOT a

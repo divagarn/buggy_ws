@@ -19,7 +19,14 @@ ackermann_steering_controller:
 
     base_frame_id: base_link
     odom_frame_id: odom
-    enable_odom_tf: true
+    # false: ekf_node (sensors_bringup.launch.py, robot_localization,
+    # fusing this controller's own odometry topic + /imu) is the sole
+    # odom->base_link TF broadcaster now - two nodes publishing the same
+    # transform is a real conflict, not harmless redundancy. This
+    # controller's ~/odometry topic still publishes regardless of this
+    # flag; only its own TF broadcast (previously relayed onto /tf by
+    # tf_odom_relay.py) is disabled.
+    enable_odom_tf: false
 
     # Rear = traction (velocity-commanded drive wheels), front = steering
     # (position-commanded knuckles). Matches the URDF's ros2_control block

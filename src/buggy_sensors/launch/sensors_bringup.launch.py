@@ -2,8 +2,19 @@
 Velodyne (URDF/Gazebo plugin, always on) -> segment_ground (torch-based
 ground removal, TOGGLEABLE via ground_filter) -> self_hit_filter (always
 on - excludes the vehicle's own chassis returns regardless of ground_filter)
--> radar_sim (UMRR-A4 stand-in, fed from self_hit_filter's output) ->
-tf_odom_relay (ackermann_steering_controller's odom onto standard /tf).
+-> radar_sim (UMRR-A4 stand-in, fed from self_hit_filter's output).
+
+odom->base_link TF: previously ackermann_steering_controller's own odom TF,
+relayed onto /tf by tf_odom_relay.py. Now an ekf_node (robot_localization,
+buggy_perception/config/ekf.yaml) fuses that controller's odometry topic
+with /imu (Gazebo's native IMU plugin on imu_mount_link, wired via
+buggy_description/urdf/buggy.gps_imu.xacro - already present in the spawned
+URDF, no extra node needed here for that part) for yaw-drift correction,
+and is now the SOLE broadcaster of that transform - see
+buggy_description/config/ackermann_controllers.yaml's enable_odom_tf:false.
+tf_odom_relay.py is unused in this launch as of that change (real-hardware
+equivalent: real_sensors_bringup.launch.py's wheel_odometry publish_tf:False
++ its own ekf_node).
 
 ground_filter:=true (default): segment_ground runs, self_hit_filter reads
 its /non_ground_points output - matches the old workspace's normal mode.
@@ -33,6 +44,9 @@ from launch_ros.actions import Node
 
 def generate_launch_description():
     pkg_buggy_description = get_package_share_directory('buggy_description')
+    pkg_buggy_perception = get_package_share_directory('buggy_perception')
+
+    ekf_params = os.path.join(pkg_buggy_perception, 'config', 'ekf.yaml')
 
     world_file_arg = DeclareLaunchArgument(
         'world_file', default_value='rect_loop_track.world',
@@ -46,6 +60,12 @@ def generate_launch_description():
         description='false: skip segment_ground (the slow torch-based node) entirely - '
                     'self_hit_filter runs on raw /velodyne_points instead. See this '
                     "file's docstring for the trade-off.")
+    odom0_topic_arg = DeclareLaunchArgument(
+        'odom0_topic', default_value='/ackermann_steering_controller/odometry',
+        description="ekf_node's wheel-odometry input - steering_controllers_library's "
+                    "own nav_msgs/Odometry topic (separate from its ~/tf_odometry, which "
+                    "is now unused - see enable_odom_tf:false). Override if this doesn't "
+                    "match what 'ros2 topic list' shows on your ros2_control version.")
 
     non_ground_points_source = PythonExpression([
         "'/non_ground_points' if '", LaunchConfiguration('ground_filter'),
@@ -85,12 +105,15 @@ def generate_launch_description():
         ],
     )
 
-    tf_odom_relay = Node(
-        package='buggy_perception',
-        executable='tf_odom_relay',
-        name='tf_odom_relay',
+    ekf_node = Node(
+        package='robot_localization',
+        executable='ekf_node',
+        name='ekf_filter_node',
         output='screen',
-        parameters=[{'use_sim_time': True}],
+        parameters=[ekf_params, {'use_sim_time': True}],
+        remappings=[
+            ('odom0', LaunchConfiguration('odom0_topic')),
+        ],
     )
 
     radar_sim = Node(
@@ -108,9 +131,10 @@ def generate_launch_description():
         spawn_yaw_arg,
         gui_arg,
         ground_filter_arg,
+        odom0_topic_arg,
         gazebo,
         segment_ground,
         self_hit_filter,
-        tf_odom_relay,
+        ekf_node,
         radar_sim,
     ])
